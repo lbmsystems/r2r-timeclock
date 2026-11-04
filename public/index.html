@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="R2R Clock">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#E6E3DE">
+<title>Root to Rise · Time Clock</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;800&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/kiosk.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <div class="wordmark" role="img" aria-label="Root to Rise"><span>Root</span><span>To</span><span>Rise</span></div>
+      <div>
+        <div class="brand-sub">microschool</div>
+        <div class="brand-note">Staff time clock</div>
+      </div>
+    </div>
+    <nav class="toggle" aria-label="Kiosk view">
+      <button type="button" data-view="names" aria-pressed="true">Clock in / out</button>
+      <button type="button" data-view="schedule" aria-pressed="false">Today's schedule</button>
+    </nav>
+    <div class="clock">
+      <div class="clock-time" id="clock-time">--:--</div>
+      <div class="clock-date" id="clock-date"></div>
+    </div>
+  </header>
+
+  <div class="notice" id="notice" hidden></div>
+
+  <!-- 1. Tap your name -->
+  <main class="view" id="view-names">
+    <div class="view-head">
+      <h1>Tap your name</h1>
+      <div class="legend">
+        <span><i class="dot dot-in"></i>Clocked in</span>
+        <span><i class="dot dot-out"></i>Clocked out</span>
+      </div>
+    </div>
+    <div class="tiles" id="tiles"></div>
+    <div class="spacer"></div>
+    <div class="banner">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg>
+      Heading out? If your name is green, tap it to clock out.
+    </div>
+  </main>
+
+  <!-- 2. Today's schedule -->
+  <main class="view" id="view-schedule" hidden>
+    <h1>Who's working today</h1>
+    <div class="shifts" id="shifts"></div>
+    <button type="button" class="cta" data-view="names">Not clocked in yet? Tap here to clock in</button>
+  </main>
+
+  <!-- 3. Enter code -->
+  <main class="view view-pin" id="view-pin" hidden>
+    <div class="pin-left">
+      <button type="button" class="back" id="pin-back">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+        Not you? Go back
+      </button>
+      <div class="pin-who">
+        <div class="avatar avatar-lg" id="pin-avatar"></div>
+        <h1 id="pin-hello"></h1>
+        <div class="pin-ask" id="pin-ask"></div>
+        <div class="pin-status" id="pin-status"></div>
+        <div class="pin-dots" id="pin-dots" aria-live="polite"></div>
+        <div class="pin-error" id="pin-error" role="alert"></div>
+      </div>
+    </div>
+    <div class="pin-right">
+      <div class="keypad" id="keypad"></div>
+      <div class="pin-help">Forgot your code? Ask Tay or the director.</div>
+    </div>
+  </main>
+
+  <!-- 4. Done -->
+  <main class="view view-done" id="view-done" hidden>
+    <div class="done-icon" id="done-icon"></div>
+    <h1 id="done-title"></h1>
+    <div class="done-time" id="done-time"></div>
+    <div class="done-stats" id="done-stats"></div>
+    <div class="done-note" id="done-note"></div>
+    <button type="button" class="done-btn" id="done-btn">Done</button>
+    <div class="done-count" id="done-count"></div>
+  </main>
+</div>
+<script src="/kiosk.js"></script>
+</body>
+</html>

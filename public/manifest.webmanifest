@@ -1,0 +1,10 @@
+{
+  "name": "Root to Rise Time Clock",
+  "short_name": "R2R Clock",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#E6E3DE",
+  "theme_color": "#E6E3DE",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
