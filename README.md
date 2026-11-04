@@ -8,6 +8,13 @@ in the Root to Rise workspace.
 iPad (public/)  ──►  Cloudflare Worker (src/)  ──►  Airtable "R2R Time Clock"
 ```
 
+**Live kiosk:** <https://r2r-timeclock.learnbuildmaintain.workers.dev>
+
+**Deploys:** Cloudflare Workers Builds watches the `main` branch of this repo.
+Every merge into `main` builds and deploys automatically (about a minute).
+Changes are made on a branch and reviewed as a pull request first, so
+nothing reaches the iPad until it is merged.
+
 - **`public/`** is the kiosk page: plain HTML, CSS and JS, with no build step.
 - **`src/`** is the Worker. It serves that page plus a small API, and it is
   the only thing that talks to Airtable. Codes are checked here and never in
@@ -61,10 +68,15 @@ From the **Root to Rise** Airtable account: <https://airtable.com/create/tokens>
 Copy the token somewhere safe for the next step. Don't paste it into chat,
 email or this repo.
 
-### 2. Cloudflare (Root to Rise's own account)
+### 2. Cloudflare
 
-Sign up for a free account at <https://dash.cloudflare.com/sign-up>, then on a
-computer with Node 20+:
+The Worker is connected to this repo in the Cloudflare dashboard
+(*Workers & Pages → r2r-timeclock → Settings → Builds*): production branch
+`main`, no build command, deploy command `npx wrangler deploy`, root
+directory `/`. Secrets are added under *Settings → Variables and Secrets*,
+each as type **Secret**: `AIRTABLE_TOKEN` and `PIN_PEPPER` (see below).
+
+To deploy by hand from a computer instead (Node 20+):
 
 ```bash
 npm install
