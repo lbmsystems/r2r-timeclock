@@ -14,6 +14,7 @@
     data: null,
     offset: 0,            // server clock minus iPad clock, ms
     online: true,
+    problem: "",          // a setup or server error, as opposed to no connection
     view: "names",
     who: null,            // staff member on the code screen
     pin: "",
@@ -93,20 +94,43 @@
   function loadState() {
     return fetch("/api/state", { cache: "no-store" })
       .then(function (res) {
-        if (!res.ok) throw new Error("state " + res.status);
-        return res.json();
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          if (!res.ok) throw { reply: data, status: res.status };
+          return data;
+        });
       })
       .then(function (data) {
         state.offset = new Date(data.now).getTime() - Date.now();
         state.data = data;
         state.online = true;
+        state.problem = "";
         render();
         return flushQueue();
       })
-      .catch(function () {
-        state.online = false;
-        renderNotice();
+      .catch(function (err) {
+        // The Worker answered, but with an error: say what it is, rather
+        // than blaming the internet.
+        if (err && err.reply) {
+          state.online = true;
+          state.problem = describeProblem(err.reply, err.status);
+        } else {
+          state.online = false;
+          state.problem = "";
+        }
+        render();
       });
+  }
+
+  function describeProblem(reply, status) {
+    if (reply.error === "not_configured") {
+      return "The time clock isn't set up yet" +
+        (reply.missing && reply.missing.length ? " (missing " + reply.missing.join(" and ") + ")" : "") +
+        ". Clock-ins are saved on this iPad until it is. Please tell Tay or the director.";
+    }
+    if (reply.error === "airtable_unavailable") {
+      return "The time clock can't reach Airtable right now. Clock in and out as usual; times are saved on this iPad and sent when it's back.";
+    }
+    return "The time clock hit a problem (" + (reply.error || "error " + status) + "). Clock-ins are saved on this iPad. Please tell Tay or the director.";
   }
 
   // ------------------------------------------------------------------ render
@@ -121,7 +145,9 @@
     var box = $("notice");
     var msgs = [];
     var queued = readList(QUEUE_KEY);
-    if (!state.online) {
+    if (state.problem) {
+      msgs.push(state.problem);
+    } else if (!state.online) {
       msgs.push("The time clock can't reach the internet. Clock in and out as usual; times are saved on this iPad and sent when it's back.");
     } else if (queued.length) {
       msgs.push("Sending " + queued.length + " saved punch" + (queued.length > 1 ? "es" : "") + "…");
@@ -136,7 +162,11 @@
   function renderNames() {
     var wrap = $("tiles");
     wrap.textContent = "";
-    if (!state.data) { wrap.appendChild(el("div", "empty", "Loading…")); return; }
+    if (!state.data) {
+      var waiting = state.problem || !state.online ? "Can't load the staff list. See the message above." : "Loading…";
+      wrap.appendChild(el("div", "empty", waiting));
+      return;
+    }
     if (!state.data.staff.length) { wrap.appendChild(el("div", "empty", "No staff yet. Add people in Airtable and tick Active.")); return; }
     state.data.staff.forEach(function (p) {
       var inNow = isClockedIn(p);
