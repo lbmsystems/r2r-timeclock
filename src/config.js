@@ -39,7 +39,12 @@ export const PUNCHES = {
   source: "fldYD9CoD91QiWpL9", // "Kiosk" | "Manual fix"
   note: "fldVGBGXxzB3lXcU2",
   requestId: "fldqAQH98sH4r2ETw",
+  editedBy: "fldDcaCYSgyNqzyny",
+  editReason: "fldHobY4O9ZOXOyCz",
 };
+
+// Airtable, for links from the dashboard.
+export const AIRTABLE_URL = "https://airtable.com/appN03Pyn2NzRRY95";
 
 // Local time for every "today", "this week" and shift calculation. The
 // Worker runs in UTC, so nothing may rely on the server's own clock zone.

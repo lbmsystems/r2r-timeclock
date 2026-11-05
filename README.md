@@ -138,6 +138,9 @@ npm test          # time-zone math + the whole clock-in/out flow against a fake 
 npm run dev       # local Worker at http://localhost:8787
 ```
 
+To try the dashboard locally, add `INSECURE_DEV_ADMIN_EMAIL=you@example.com`
+to `.dev.vars`. It is honoured only for `localhost`, never on the live site.
+
 `npm run dev` needs a `.dev.vars` file (git-ignored) with
 `AIRTABLE_TOKEN=...` and `PIN_PEPPER=...`. Use a different pepper than
 production. Locally it reads and writes the real base, so test with a
@@ -158,9 +161,60 @@ All in `src/config.js`:
 | Wrong codes before lockout | 5, for 5 minutes |
 | Oldest offline punch accepted | 12 hours |
 
+## Owner dashboard
+
+**<https://r2r-timeclock.learnbuildmaintain.workers.dev/admin/>**, for the
+owners only. It has three views:
+
+- **Today:** who is clocked in and today's hours, refreshed every minute,
+  plus a *Needs attention* list:
+  - a shift left open from an earlier day (forgot to clock out). Enter the
+    time they left and save;
+  - someone still clocked in 30+ minutes after their last shift ended (or
+    10+ hours with no shift);
+  - someone scheduled who hasn't clocked in 15 minutes into their shift, or
+    never came in.
+- **Hours & payroll:** hours per person for this week, last week, the last
+  two weeks, this or last month, or any range up to 62 days. Each person's
+  shifts can be opened and fixed. **Download CSV** gives a row per shift
+  plus totals.
+- **Schedule:** a week grid with who worked, who is in now, and who was
+  scheduled but didn't clock in. The schedule itself is still edited in
+  Airtable.
+
+Every fix (a forgotten clock-out, a missed punch) needs a short reason. It
+is saved on the punch with *Source: Manual fix*, *Edited By* (the owner's
+email) and the time of the change.
+
+### Turning on the login (Cloudflare Access)
+
+The dashboard refuses every request until Access protects it, so nothing is
+exposed before this is done. Access is free for up to 50 people.
+
+1. In Cloudflare, open **Zero Trust**. The first time, pick a team name
+   (for example `roottorise`) and the **Free** plan.
+2. **Access → Applications → Add an application → Self-hosted**:
+   - Name: `R2R staff hours`
+   - Domain: `r2r-timeclock.learnbuildmaintain.workers.dev`, path: `admin`
+     (the kiosk at `/` stays open; only `/admin` asks for a login)
+   - Policy: **Allow**, Include → **Emails** → the owners' email addresses
+   - Login method: **One-time PIN** (a code sent by email) is the default
+3. Open the new application and copy its **Application Audience (AUD) Tag**.
+4. In the Worker: **Settings → Variables and Secrets → Add**, each as type
+   **Secret**:
+   - `ACCESS_TEAM_DOMAIN`: your team domain, e.g. `roottorise.cloudflareaccess.com`
+   - `ACCESS_AUD`: the AUD tag from step 3
+   - `ADMIN_EMAILS` (optional): the same owner emails, comma-separated, as a
+     second lock
+   
+   Then **Deploy** the new version if Cloudflare asks.
+5. Open `/admin/`. Cloudflare asks for your email, sends a code, and then
+   shows the dashboard.
+
+The Worker checks Access's signature on every request rather than trusting a
+header, so a request that did not come through Access gets nothing.
+
 ## Not built yet
 
-- The owner dashboard (today, pay period, schedule, payroll CSV), behind a
-  Cloudflare Access login for the owners.
 - An evening check that emails or texts anyone still clocked in after their
   shift.

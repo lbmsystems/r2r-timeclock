@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Root to Rise · Staff hours</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;800&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand">
+      <div class="wordmark" role="img" aria-label="Root to Rise"><span>Root</span><span>To</span><span>Rise</span></div>
+      <div class="brand-sub">microschool<br>staff hours</div>
+    </div>
+    <nav class="nav" aria-label="Dashboard">
+      <a href="#today" data-tab="today">Today <span class="badge" id="nav-badge" hidden></span></a>
+      <a href="#hours" data-tab="hours">Hours &amp; payroll</a>
+      <a href="#schedule" data-tab="schedule">Schedule</a>
+    </nav>
+    <div class="side-foot">
+      <a id="airtable-link" href="#" target="_blank" rel="noopener">Open Airtable ↗</a>
+      <a href="/" target="_blank" rel="noopener">Open the kiosk ↗</a>
+      <div class="me" id="me"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="banner" id="banner" role="alert" hidden></div>
+
+    <!-- TODAY -->
+    <section class="view" id="view-today" hidden>
+      <header class="head">
+        <div>
+          <div class="eyebrow" id="today-date"></div>
+          <h1>Today</h1>
+        </div>
+        <div class="head-actions">
+          <span class="muted" id="today-updated"></span>
+          <button type="button" class="btn" id="add-punch">Add a missed punch</button>
+        </div>
+      </header>
+      <div class="stats" id="today-stats"></div>
+      <section class="card card-alert" id="attention-card" hidden>
+        <h2>Needs attention</h2>
+        <div id="attention"></div>
+      </section>
+      <section class="card">
+        <h2>Everyone today</h2>
+        <div class="table-wrap"><table class="table" id="people-table"></table></div>
+      </section>
+    </section>
+
+    <!-- HOURS -->
+    <section class="view" id="view-hours" hidden>
+      <header class="head">
+        <div>
+          <div class="eyebrow">Hours for payroll</div>
+          <h1 id="hours-title">Hours</h1>
+        </div>
+        <div class="head-actions">
+          <a class="btn btn-dark" id="csv-link" href="#" download>Download CSV</a>
+        </div>
+      </header>
+      <div class="range">
+        <div class="presets" id="presets" role="group" aria-label="Date range"></div>
+        <label>From <input type="date" id="from"></label>
+        <label>To <input type="date" id="to"></label>
+      </div>
+      <div class="stats" id="hours-stats"></div>
+      <section class="card">
+        <div class="table-wrap"><table class="table" id="hours-table"></table></div>
+      </section>
+    </section>
+
+    <!-- SCHEDULE -->
+    <section class="view" id="view-schedule" hidden>
+      <header class="head">
+        <div>
+          <div class="eyebrow">Morning · Midday · Afternoon</div>
+          <h1>Schedule</h1>
+        </div>
+        <div class="head-actions">
+          <div class="weeknav">
+            <button type="button" class="icon-btn" id="week-prev" aria-label="Previous week">‹</button>
+            <span id="week-label"></span>
+            <button type="button" class="icon-btn" id="week-next" aria-label="Next week">›</button>
+          </div>
+          <button type="button" class="btn" id="week-this">This week</button>
+          <a class="btn" id="schedule-edit" href="#" target="_blank" rel="noopener">Edit in Airtable ↗</a>
+        </div>
+      </header>
+      <div class="legend">
+        <span><i class="dot dot-worked"></i>Worked</span>
+        <span><i class="dot dot-in"></i>Clocked in now</span>
+        <span><i class="dot dot-missed"></i>Scheduled, didn't clock in</span>
+        <span><i class="dot dot-scheduled"></i>Upcoming</span>
+      </div>
+      <section class="card card-flush">
+        <div class="table-wrap"><div class="grid" id="week-grid"></div></div>
+      </section>
+    </section>
+  </main>
+</div>
+
+<!-- edit / add punch -->
+<dialog id="punch-dialog">
+  <form method="dialog" id="punch-form">
+    <h2 id="punch-title">Fix punch</h2>
+    <label id="staff-row">Who
+      <select id="punch-staff" required></select>
+    </label>
+    <label>Clocked in
+      <input type="datetime-local" id="punch-in" required>
+    </label>
+    <label>Clocked out <span class="muted">(leave empty if still here)</span>
+      <input type="datetime-local" id="punch-out">
+    </label>
+    <label>Reason <span class="muted">(saved with the change)</span>
+      <input type="text" id="punch-reason" maxlength="500" required placeholder="e.g. Forgot to clock out">
+    </label>
+    <div class="form-error" id="punch-error" role="alert"></div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="punch-cancel">Cancel</button>
+      <button type="submit" class="btn btn-dark" id="punch-save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/admin/admin.js"></script>
+</body>
+</html>
