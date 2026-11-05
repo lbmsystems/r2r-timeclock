@@ -34,6 +34,13 @@ export function fakeAirtable(tables) {
     if (formula.startsWith("OR(") && formula.endsWith(")")) {
       return splitTopLevel(formula.slice(3, -1)).some((f) => matches(rec, f));
     }
+    if (formula.startsWith("AND(") && formula.endsWith(")")) {
+      return splitTopLevel(formula.slice(4, -1)).every((f) => matches(rec, f));
+    }
+    if ((m = /^IS_BEFORE\(\{(fld\w+)\}, DATETIME_PARSE\('([^']+)'\)\)$/.exec(formula))) {
+      const v = rec.fields[m[1]];
+      return Boolean(v) && new Date(v) < new Date(m[2]);
+    }
     if ((m = /^\{(fld\w+)\} = BLANK\(\)$/.exec(formula))) {
       const v = rec.fields[m[1]];
       return v === undefined || v === null || v === "";

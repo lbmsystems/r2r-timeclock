@@ -58,7 +58,7 @@ const isOpen = (p) => !p.fields[PUNCHES.clockOut];
 // matters: Airtable allows only 5 calls per second.
 const SHIFT_TYPES_TTL_MS = 5 * 60 * 1000;
 let shiftTypesCache = null;
-async function shiftTypeRows(at) {
+export async function shiftTypeRows(at) {
   if (shiftTypesCache && Date.now() - shiftTypesCache.at < SHIFT_TYPES_TTL_MS) return shiftTypesCache.rows;
   const rows = await at.list(SHIFT_TYPES.table);
   shiftTypesCache = { at: Date.now(), rows };
@@ -258,7 +258,7 @@ export async function punch(at, env, body, now = new Date()) {
 
 // ------------------------------------------------------------------- shifts
 
-function sortedShiftTypes(rows) {
+export function sortedShiftTypes(rows) {
   return rows
     .map((t) => ({
       id: t.id,
