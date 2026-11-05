@@ -18,7 +18,10 @@ const json = (status, body) =>
 
 export async function handleApi(request, env, { fetchImpl, now } = {}) {
   const url = new URL(request.url);
-  if (!env.AIRTABLE_TOKEN || !env.PIN_PEPPER) return json(500, { error: "not_configured" });
+  // Names only, never values, so a setup mistake can be spotted from the
+  // kiosk or by opening /api/state in a browser.
+  const missing = ["AIRTABLE_TOKEN", "PIN_PEPPER"].filter((k) => !env[k]);
+  if (missing.length) return json(500, { error: "not_configured", missing });
   const at = airtable(env.AIRTABLE_TOKEN, fetchImpl ? { fetchImpl } : {});
 
   try {

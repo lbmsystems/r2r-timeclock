@@ -180,3 +180,9 @@ test("Airtable down or unreachable answers 502, so the kiosk keeps the punch and
   assert.equal(gone.status, 502);
   assert.equal((await gone.json()).error, "airtable_unavailable");
 });
+
+test("a missing secret is named, never shown", async () => {
+  const r = await handleApi(new Request(ORIGIN + "/api/state"), { PIN_PEPPER: "x" });
+  assert.equal(r.status, 500);
+  assert.deepEqual(await r.json(), { error: "not_configured", missing: ["AIRTABLE_TOKEN"] });
+});
