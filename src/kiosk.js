@@ -2,7 +2,7 @@
 // and clocking someone in or out.
 
 import {
-  STAFF, SHIFT_TYPES, SCHEDULE, PUNCHES,
+  STAFF, SHIFT_TYPES, SCHEDULE, PUNCHES, ABSENCES,
   TIME_ZONE, WEEK_STARTS_ON, LATE_GRACE_MINUTES,
   MAX_FAILED_ATTEMPTS, LOCKOUT_MINUTES, MAX_OFFLINE_AGE_HOURS,
 } from "./config.js";
@@ -66,6 +66,25 @@ export async function shiftTypeRows(at) {
 }
 export function resetCaches() { shiftTypesCache = null; }
 
+/** Absences recorded for one day. */
+export function absencesOn(at, date) {
+  return at.list(ABSENCES.table, {
+    filterByFormula: `DATETIME_FORMAT({${ABSENCES.date}}, 'YYYY-MM-DD') = ${formulaString(date)}`,
+  });
+}
+
+/** staff id -> the shift ids they are marked absent from. */
+export function outByStaff(absenceRows) {
+  const out = new Map();
+  for (const a of absenceRows) {
+    for (const staffId of linkIds(a.fields[ABSENCES.staff])) {
+      if (!out.has(staffId)) out.set(staffId, new Set());
+      for (const shiftId of linkIds(a.fields[ABSENCES.shifts])) out.get(staffId).add(shiftId);
+    }
+  }
+  return out;
+}
+
 function openToday(punches, now) {
   const today = localDate(now, TIME_ZONE);
   const open = punches.filter(isOpen);
@@ -84,7 +103,7 @@ export async function getState(at, env, now = new Date()) {
   const dayStart = zonedTime(today, "00:00", TIME_ZONE);
 
   // One punches query covers both "still open" and "started today".
-  const [staffRaw, punches, shiftTypes, schedule] = await Promise.all([
+  const [staffRaw, punches, shiftTypes, schedule, absences] = await Promise.all([
     at.list(STAFF.table),
     at.list(PUNCHES.table, {
       filterByFormula: `OR({${PUNCHES.clockOut}} = BLANK(), ${after(PUNCHES.clockIn, new Date(dayStart - 60000))})`,
@@ -93,6 +112,7 @@ export async function getState(at, env, now = new Date()) {
     at.list(SCHEDULE.table, {
       filterByFormula: `DATETIME_FORMAT({${SCHEDULE.date}}, 'YYYY-MM-DD') = ${formulaString(today)}`,
     }),
+    absencesOn(at, today),
   ]);
   const open = openToday(punches, now);
   const todays = punches.filter((p) => p.fields[PUNCHES.clockIn] && new Date(p.fields[PUNCHES.clockIn]) >= dayStart);
@@ -125,7 +145,7 @@ export async function getState(at, env, now = new Date()) {
     nowMin: localMinutes(now, TIME_ZONE),
     inSince,
     workedToday,
-  });
+  }, "future", outByStaff(absences));
 
   return { now: iso(now), timeZone: TIME_ZONE, today, staff, shifts };
 }
@@ -281,7 +301,7 @@ export function sortedShiftTypes(rows) {
  * is just "scheduled". The kiosk sits in a public spot, so who did or didn't
  * clock in on other days stays in the owners' dashboard.
  */
-function buildShifts(shiftTypeRows, scheduleRows, nameOf, date, today, otherDayPhase = "future") {
+function buildShifts(shiftTypeRows, scheduleRows, nameOf, date, today, otherDayPhase = "future", out = new Map()) {
   let nextMarked = false;
   return sortedShiftTypes(shiftTypeRows).map((t) => {
     const ids = new Set();
@@ -302,11 +322,14 @@ function buildShifts(shiftTypeRows, scheduleRows, nameOf, date, today, otherDayP
     const people = [...ids]
       .filter((id) => nameOf.has(id))
       .map((id) => {
-        let status = "scheduled";
+        // An owner marked them absent for this shift. The kiosk says only
+        // "out"; the reason stays in the dashboard.
+        const isOut = out.get(id)?.has(t.id) ?? false;
+        let status = isOut ? "out" : "scheduled";
         if (today) {
           if (today.inSince.has(id)) status = "in";
           else if (today.workedToday.has(id)) status = "done";
-          else if (today.nowMin >= t.start + LATE_GRACE_MINUTES) status = "missing";
+          else if (!isOut && today.nowMin >= t.start + LATE_GRACE_MINUTES) status = "missing";
         }
         return { id, name: nameOf.get(id), status };
       })
@@ -344,12 +367,13 @@ export async function getSchedule(at, env, date, now = new Date()) {
     const state = await getState(at, env, now);
     return { date, today, shifts: state.shifts };
   }
-  const [staffRows, shiftTypes, schedule] = await Promise.all([
+  const [staffRows, shiftTypes, schedule, absences] = await Promise.all([
     at.list(STAFF.table),
     shiftTypeRows(at),
     at.list(SCHEDULE.table, {
       filterByFormula: `DATETIME_FORMAT({${SCHEDULE.date}}, 'YYYY-MM-DD') = ${formulaString(date)}`,
     }),
+    absencesOn(at, date),
   ]);
   const nameOf = new Map(
     staffRows.filter((r) => r.fields[STAFF.name]).map((r) => [r.id, String(r.fields[STAFF.name])]),
@@ -357,6 +381,6 @@ export async function getSchedule(at, env, date, now = new Date()) {
   return {
     date,
     today,
-    shifts: buildShifts(shiftTypes, schedule, nameOf, date, null, date < today ? "past" : "future"),
+    shifts: buildShifts(shiftTypes, schedule, nameOf, date, null, date < today ? "past" : "future", outByStaff(absences)),
   };
 }

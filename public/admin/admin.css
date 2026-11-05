@@ -133,6 +133,23 @@ dialog input, dialog select { min-height: 44px; border-radius: 10px; border: 1px
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .empty { padding: 24px; text-align: center; color: var(--muted); }
 
+/* resolve + absences */
+.resolve { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill-absent { background: var(--line-soft); color: var(--muted); }
+.row-absent td:first-child .who span:last-child { text-decoration: line-through; color: var(--muted); }
+.row-actions { display: flex; gap: 14px; justify-content: flex-end; }
+.reasons { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.reasons legend { font-weight: 500; margin-bottom: 8px; padding: 0; }
+.reasons label { flex-direction: row; align-items: center; gap: 0; }
+.reasons input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.reasons span { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-weight: 500; cursor: pointer; }
+.reasons input:checked + span { background: var(--ink); border-color: var(--ink); color: #fff; }
+.reasons input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
+.dot-absent { background: #CFCAC3; }
+.chip.absent { color: var(--muted-2); }
+.chip.absent span { text-decoration: line-through; }
+.absence-line td { color: var(--muted); }
+
 @media (max-width: 760px) {
   .side { flex-basis: 100%; padding: 16px; gap: 14px; }
   .nav { flex-direction: row; flex-wrap: wrap; }

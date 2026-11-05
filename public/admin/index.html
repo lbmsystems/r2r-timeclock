@@ -100,6 +100,7 @@
         <span><i class="dot dot-in"></i>Clocked in now</span>
         <span><i class="dot dot-missed"></i>Scheduled, didn't clock in</span>
         <span><i class="dot dot-scheduled"></i>Upcoming</span>
+        <span><i class="dot dot-absent"></i>Marked absent</span>
       </div>
       <section class="card card-flush">
         <div class="table-wrap"><div class="grid" id="week-grid"></div></div>
@@ -128,6 +129,25 @@
     <div class="dialog-actions">
       <button type="button" class="btn" id="punch-cancel">Cancel</button>
       <button type="submit" class="btn btn-dark" id="punch-save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- mark absent -->
+<dialog id="absence-dialog">
+  <form method="dialog" id="absence-form">
+    <h2 id="absence-title">Mark absent</h2>
+    <div class="muted" id="absence-sub"></div>
+    <fieldset class="reasons" id="absence-reasons">
+      <legend>Reason</legend>
+    </fieldset>
+    <label>Note <span class="muted">(optional)</span>
+      <input type="text" id="absence-note" maxlength="500" placeholder="e.g. Texted Tay at 6am">
+    </label>
+    <div class="form-error" id="absence-error" role="alert"></div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="absence-cancel">Cancel</button>
+      <button type="submit" class="btn btn-dark" id="absence-save">Mark absent</button>
     </div>
   </form>
 </dialog>

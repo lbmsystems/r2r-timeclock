@@ -11,6 +11,8 @@
 //   GET   /admin/api/week?start=YYYY-MM-DD        a week of schedule + attendance
 //   POST  /admin/api/punches                      add a missed punch
 //   PATCH /admin/api/punches/<record id>          fix a punch's times
+//   POST  /admin/api/absences                     mark someone absent from a shift
+//   DELETE /admin/api/absences/<record id>        undo that
 //
 // Secrets (set with `npx wrangler secret put NAME`):
 //   AIRTABLE_TOKEN  personal access token, scoped to the R2R Time Clock base only
@@ -19,7 +21,9 @@
 import { airtable, AirtableError } from "./airtable.js";
 import { getState, getSchedule, punch, KioskError } from "./kiosk.js";
 import { requireAdmin, AccessError } from "./access.js";
-import { getOverview, getHours, hoursCsv, getWeek, updatePunch, createPunch, AdminError } from "./admin.js";
+import {
+  getOverview, getHours, hoursCsv, getWeek, updatePunch, createPunch, createAbsence, deleteAbsence, AdminError,
+} from "./admin.js";
 
 const json = (status, body) =>
   new Response(JSON.stringify(body), {
@@ -94,6 +98,8 @@ export async function handleAdmin(request, env, { fetchImpl, now } = {}) {
     // Changes only from the dashboard page itself.
     const origin = request.headers.get("Origin");
     if (origin && origin !== url.origin) return json(403, { error: "forbidden" });
+    const del = /^\/absences\/(rec[A-Za-z0-9]{14})$/.exec(path);
+    if (request.method === "DELETE" && del) return json(200, await deleteAbsence(at, del[1]));
     let body;
     try {
       body = await request.json();
@@ -101,6 +107,7 @@ export async function handleAdmin(request, env, { fetchImpl, now } = {}) {
       return json(400, { error: "bad_json" });
     }
     if (request.method === "POST" && path === "/punches") return json(200, await createPunch(at, email, body, when));
+    if (request.method === "POST" && path === "/absences") return json(200, await createAbsence(at, email, body, when));
     const m = /^\/punches\/(rec[A-Za-z0-9]{14})$/.exec(path);
     if (request.method === "PATCH" && m) return json(200, await updatePunch(at, email, m[1], body, when));
     return json(404, { error: "not_found" });

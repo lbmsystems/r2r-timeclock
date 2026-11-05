@@ -66,6 +66,10 @@ export function airtable(token, { baseId = BASE_ID, fetchImpl = fetch, retryDela
       return res.records[0];
     },
 
+    async remove(table, id) {
+      return call("DELETE", `${table}/${id}`);
+    },
+
     async update(table, id, fields) {
       const res = await call("PATCH", `${table}?returnFieldsByFieldId=true`, {
         records: [{ id, fields }],
