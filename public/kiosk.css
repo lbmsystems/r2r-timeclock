@@ -48,8 +48,6 @@ h1 { margin: 0; font-weight: 400; font-size: 40px; letter-spacing: -0.02em; line
 .top { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
 .brand { display: flex; align-items: center; gap: 14px; }
 .wordmark { display: flex; flex-direction: column; font-weight: 800; font-size: 22px; line-height: 0.86; letter-spacing: -0.03em; text-transform: uppercase; }
-.brand-sub { font-weight: 500; font-size: 20px; }
-.brand-note { font-size: 16px; color: var(--muted); }
 .toggle { display: flex; gap: 4px; padding: 4px; border-radius: 16px; background: var(--track); }
 .toggle button { min-height: 52px; padding: 0 24px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); font-size: 18px; font-weight: 500; }
 .toggle button[aria-pressed="true"] { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(47, 47, 46, 0.12); }
@@ -153,7 +151,7 @@ h1 { margin: 0; font-weight: 400; font-size: 40px; letter-spacing: -0.02em; line
 /* done */
 .view-done { align-items: center; justify-content: center; text-align: center; gap: 20px; }
 .app.is-dark { background: var(--ink); color: #F4F3F0; }
-.app.is-dark .brand-note, .app.is-dark .clock-date { color: #C9C4BD; }
+.app.is-dark .clock-date { color: #C9C4BD; }
 .done-icon { width: 140px; height: 140px; border-radius: 70px; display: flex; align-items: center; justify-content: center; background: var(--ink); color: #F4F3F0; }
 .is-in .done-icon { background: #B5CB8A; color: var(--ink); }
 .view-done h1 { font-size: 56px; letter-spacing: -0.03em; }
