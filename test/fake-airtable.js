@@ -13,9 +13,27 @@ export function fakeAirtable(tables) {
     db[table] = rows.map((r) => ({ id: r.id ?? newId(), createdTime: new Date().toISOString(), fields: { ...r.fields } }));
   }
 
+  function splitTopLevel(inner) {
+    const parts = [];
+    let depth = 0, quote = false, start = 0;
+    for (let i = 0; i < inner.length; i++) {
+      const c = inner[i];
+      if (c === "'" && inner[i - 1] !== "\\") quote = !quote;
+      if (quote) continue;
+      if (c === "(") depth++;
+      else if (c === ")") depth--;
+      else if (c === "," && depth === 0) { parts.push(inner.slice(start, i).trim()); start = i + 1; }
+    }
+    parts.push(inner.slice(start).trim());
+    return parts;
+  }
+
   function matches(rec, formula) {
     if (!formula) return true;
     let m;
+    if (formula.startsWith("OR(") && formula.endsWith(")")) {
+      return splitTopLevel(formula.slice(3, -1)).some((f) => matches(rec, f));
+    }
     if ((m = /^\{(fld\w+)\} = BLANK\(\)$/.exec(formula))) {
       const v = rec.fields[m[1]];
       return v === undefined || v === null || v === "";

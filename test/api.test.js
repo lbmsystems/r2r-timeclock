@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { handleApi } from "../src/worker.js";
 import { STAFF, SHIFT_TYPES, SCHEDULE, PUNCHES } from "../src/config.js";
 import { hashPin } from "../src/pin.js";
+import { resetCaches } from "../src/kiosk.js";
+import { airtable } from "../src/airtable.js";
 import { fakeAirtable } from "./fake-airtable.js";
 
 const env = { AIRTABLE_TOKEN: "test-token", PIN_PEPPER: "test-pepper" };
@@ -14,6 +16,7 @@ const ORIGIN = "https://clock.example";
 const at = (hhmm, day = "2026-11-04") => new Date(`${day}T${hhmm}:00-05:00`);
 
 async function setup(extraPunches = []) {
+  resetCaches();
   const fake = fakeAirtable({
     [STAFF.table]: [
       { id: SELMA, fields: { [STAFF.name]: "Selma", [STAFF.active]: true, [STAFF.newPin]: "1234" } },
@@ -185,4 +188,64 @@ test("a missing secret is named, never shown", async () => {
   const r = await handleApi(new Request(ORIGIN + "/api/state"), { PIN_PEPPER: "x" });
   assert.equal(r.status, 500);
   assert.deepEqual(await r.json(), { error: "not_configured", missing: ["AIRTABLE_TOKEN"] });
+});
+
+test("schedule for another day lists who is scheduled, without attendance", async () => {
+  const { call } = await setup();
+  const r = await call("GET", "/api/schedule?date=2026-11-05");
+  assert.equal(r.status, 200);
+  assert.equal(r.body.date, "2026-11-05");
+  assert.equal(r.body.today, "2026-11-04");
+  const [morning, midday] = r.body.shifts;
+  assert.equal(morning.phase, "future");
+  assert.deepEqual(morning.people.map((p) => [p.name, p.status]), [["Asha", "scheduled"]]);
+  assert.deepEqual(midday.people, []);
+  assert.equal(morning.startLabel, "7:00 AM");
+
+  const past = await call("GET", "/api/schedule?date=2026-11-02");
+  assert.equal(past.body.shifts[0].phase, "past");
+});
+
+test("schedule for today is the live view", async () => {
+  const { call, setClock } = await setup();
+  setClock(at("07:30"));
+  const r = await call("GET", "/api/schedule?date=2026-11-04");
+  assert.equal(r.body.shifts[0].phase, "now");
+  assert.deepEqual(r.body.shifts[0].people.map((p) => p.status), ["missing", "missing"]);
+});
+
+test("schedule refuses bad or far-off dates", async () => {
+  const { call } = await setup();
+  assert.equal((await call("GET", "/api/schedule?date=nope")).body.error, "bad_date");
+  assert.equal((await call("GET", "/api/schedule?date=2026-02-30")).body.error, "bad_date");
+  assert.equal((await call("GET", "/api/schedule")).body.error, "bad_date");
+  const far = await call("GET", "/api/schedule?date=2027-06-01");
+  assert.equal(far.status, 400);
+  assert.equal(far.body.error, "date_out_of_range");
+  assert.equal(far.body.latest, "2027-02-02");
+});
+
+test("a kiosk refresh stays well under Airtable's 5-per-second limit", async () => {
+  const { fake, call } = await setup();
+  await call("GET", "/api/state");
+  // Reads only: the first refresh also saves Selma's typed New PIN once.
+  const reads = fake.calls.filter((c) => c.method === "GET").length;
+  assert.ok(reads <= 4, `first refresh made ${reads} Airtable reads`);
+  fake.calls.length = 0;
+  await call("GET", "/api/state");
+  assert.equal(fake.calls.length, 3); // shift times come from the cache
+});
+
+test("Airtable saying 'too many requests' is retried, not shown as an error", async () => {
+  let n = 0;
+  const flaky = async () => (++n === 1
+    ? new Response("rate limited", { status: 429 })
+    : Response.json({ records: [{ id: "rec1", fields: {} }] }));
+  const at = airtable("t", { fetchImpl: flaky, retryDelays: [0, 0] });
+  const rows = await at.list("tblX");
+  assert.equal(rows.length, 1);
+  assert.equal(n, 2);
+
+  const always = airtable("t", { fetchImpl: async () => new Response("no", { status: 429 }), retryDelays: [0, 0] });
+  await assert.rejects(always.list("tblX"), /Airtable 429/);
 });

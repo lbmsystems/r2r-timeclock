@@ -1,6 +1,7 @@
 // Cloudflare Worker: serves the kiosk page (public/) and its API.
 //
 //   GET  /api/state  who is clocked in + today's schedule
+//   GET  /api/schedule?date=YYYY-MM-DD  who is scheduled that day
 //   POST /api/punch  { staffId, pin, requestId, at? } -> clock in or out
 //
 // Secrets (set with `npx wrangler secret put NAME`):
@@ -8,7 +9,7 @@
 //   PIN_PEPPER      long random string; changing it invalidates every code
 
 import { airtable, AirtableError } from "./airtable.js";
-import { getState, punch, KioskError } from "./kiosk.js";
+import { getState, getSchedule, punch, KioskError } from "./kiosk.js";
 
 const json = (status, body) =>
   new Response(JSON.stringify(body), {
@@ -27,6 +28,9 @@ export async function handleApi(request, env, { fetchImpl, now } = {}) {
   try {
     if (url.pathname === "/api/state" && request.method === "GET") {
       return json(200, await getState(at, env, now?.()));
+    }
+    if (url.pathname === "/api/schedule" && request.method === "GET") {
+      return json(200, await getSchedule(at, env, url.searchParams.get("date"), now?.()));
     }
     if (url.pathname === "/api/punch" && request.method === "POST") {
       // The kiosk page is served from this same origin. A browser on any
