@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { handleApi } from "../src/worker.js";
-import { STAFF, SHIFT_TYPES, SCHEDULE, PUNCHES, ABSENCES } from "../src/config.js";
+import { STAFF, SHIFT_TYPES, SCHEDULE, PUNCHES, ABSENCES, SCHEDULE_CHANGES } from "../src/config.js";
 import { hashPin } from "../src/pin.js";
 import { resetCaches } from "../src/kiosk.js";
 import { airtable } from "../src/airtable.js";
@@ -33,6 +33,7 @@ async function setup(extraPunches = [], absences = []) {
       { fields: { [SCHEDULE.date]: "2026-11-05", [SCHEDULE.shift]: ["recMorning0000000"], [SCHEDULE.staff]: [ASHA] } },
     ],
     [ABSENCES.table]: absences,
+    [SCHEDULE_CHANGES.table]: [],
     [PUNCHES.table]: extraPunches,
   });
   let clock = at("08:52");
