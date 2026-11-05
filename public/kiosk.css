@@ -80,6 +80,10 @@ h1 { margin: 0; font-weight: 400; font-size: 40px; letter-spacing: -0.02em; line
 .avatar { flex-shrink: 0; width: 72px; height: 72px; border-radius: 36px; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 28px; background: var(--soft); color: var(--ink); }
 .tile.is-in .avatar { background: var(--in); color: #fff; }
 .avatar-lg { width: 112px; height: 112px; border-radius: 56px; font-size: 42px; }
+.avatar { position: relative; overflow: hidden; }
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.avatar.has-photo { color: transparent; }
+.tile.is-in .avatar.has-photo, .person.s-in .avatar.has-photo { box-shadow: 0 0 0 3px var(--in); }
 .empty { padding: 40px; border-radius: 20px; background: var(--card); font-size: 20px; color: var(--muted); text-align: center; }
 
 .banner { display: flex; align-items: center; gap: 14px; padding: 18px 22px; border-radius: 16px; background: var(--tan-bg); color: var(--tan-ink); font-size: 18px; font-weight: 500; }

@@ -66,6 +66,39 @@ export async function shiftTypeRows(at) {
 }
 export function resetCaches() { shiftTypesCache = null; }
 
+/**
+ * Where the kiosk and dashboard load someone's photo from, or null.
+ * Airtable's own attachment links expire after a few hours, so pages never
+ * see them: /api/photo/<staff id> fetches the image through the Worker. The
+ * ?v= part is the attachment's id, so a browser keeps its copy until the
+ * photo is replaced.
+ */
+export function photoPath(staffRecord) {
+  const att = Array.isArray(staffRecord?.fields?.[STAFF.photo]) ? staffRecord.fields[STAFF.photo][0] : null;
+  return att?.id ? `/api/photo/${staffRecord.id}?v=${encodeURIComponent(att.id)}` : null;
+}
+
+/** The image behind photoPath(), for /api/photo. */
+export async function staffPhoto(at, staffId, fetchImpl = fetch) {
+  if (!/^rec[A-Za-z0-9]{14}$/.test(String(staffId))) throw new KioskError(400, "bad_staff");
+  const [person] = await at.list(STAFF.table, { filterByFormula: `RECORD_ID() = ${formulaString(staffId)}` });
+  const att = person && Array.isArray(person.fields[STAFF.photo]) ? person.fields[STAFF.photo][0] : null;
+  if (!person || !person.fields[STAFF.active] || !att) throw new KioskError(404, "no_photo");
+  // The large thumbnail (about 512px) is plenty for an avatar and far smaller
+  // than a phone photo.
+  const src = att.thumbnails?.large?.url || att.url;
+  let res;
+  try {
+    res = await fetchImpl(src);
+  } catch {
+    throw new KioskError(502, "photo_unavailable");
+  }
+  if (!res.ok) throw new KioskError(502, "photo_unavailable");
+  const type = res.headers.get("Content-Type") || att.type || "image/jpeg";
+  if (!type.startsWith("image/")) throw new KioskError(502, "photo_unavailable");
+  return { body: res.body, type, version: att.id };
+}
+
 /** Absences recorded for one day. */
 export function absencesOn(at, date) {
   return at.list(ABSENCES.table, {
@@ -136,6 +169,7 @@ export async function getState(at, env, now = new Date()) {
       id: r.id,
       name: r.fields[STAFF.name],
       hasPin: Boolean(r.fields[STAFF.pinHash]),
+      photo: photoPath(r),
       clockedInAt: since ? iso(since) : null,
       clockedInLabel: since ? clockLabel(since, TIME_ZONE) : null,
     };

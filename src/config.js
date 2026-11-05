@@ -14,6 +14,7 @@ export const STAFF = {
   newPin: "fldZuZbHu8w3JYIOJ",
   failedAttempts: "fldIReHtlqwddhHTl",
   lockedUntil: "fldq6PFmh5m2U5qJH",
+  photo: "fldpTXPIB6c3DmdlB", // attachment; shown instead of the initial
 };
 
 export const SHIFT_TYPES = {

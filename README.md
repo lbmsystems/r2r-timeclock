@@ -53,6 +53,7 @@ nothing reaches the iPad until it is merged.
 | Add someone | **Staff** → new row → Name, tick **Active**, and type a code in **New PIN** |
 | Set or reset a code | Type 4 digits in **New PIN**. Within about 30 seconds the kiosk scrambles it into **PIN Hash** and clears the cell. Never type a code into PIN Hash. |
 | Remove someone | Untick **Active**. Their history stays. |
+| Add or change a photo | **Staff** → drag a photo into **Photo** (a clear, front-facing, roughly square one). The kiosk and dashboard show it instead of the initial within a minute. |
 | Unlock someone early | Clear **Locked Until** |
 | Schedule a shift | **Schedule** → new row → Date, Shift, Staff (one row per day and shift; add several people to it) |
 | Fix a forgotten clock-out | **Punches** → find the row with Status *Missing clock-out* → fill in **Clock Out**, set Source to *Manual fix*, add your name in **Edited By** and a reason |

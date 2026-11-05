@@ -7,7 +7,7 @@ import {
   TIME_ZONE, WEEK_STARTS_ON, LATE_GRACE_MINUTES, AIRTABLE_URL,
 } from "./config.js";
 import { formulaString } from "./airtable.js";
-import { shiftTypeRows, sortedShiftTypes, absencesOn, outByStaff } from "./kiosk.js";
+import { shiftTypeRows, sortedShiftTypes, absencesOn, outByStaff, photoPath } from "./kiosk.js";
 import {
   localDate, localMinutes, zonedTime, addDays, weekStartDate, clockLabel,
 } from "./time.js";
@@ -71,15 +71,17 @@ function hhmm(date) {
 
 function staffIndex(staffRows) {
   const nameOf = new Map();
+  const photoOf = new Map();
   const active = [];
   for (const r of staffRows) {
     const name = String(r.fields[STAFF.name] ?? "").trim();
     if (!name) continue;
     nameOf.set(r.id, name);
+    photoOf.set(r.id, photoPath(r));
     if (r.fields[STAFF.active]) active.push({ id: r.id, name });
   }
   active.sort((a, b) => a.name.localeCompare(b.name));
-  return { nameOf, active };
+  return { nameOf, photoOf, active };
 }
 
 function absenceView(a, typeById) {
@@ -121,7 +123,7 @@ export async function getOverview(at, now = new Date()) {
     }),
     absencesOn(at, today),
   ]);
-  const { nameOf, active } = staffIndex(staffRows);
+  const { nameOf, photoOf, active } = staffIndex(staffRows);
   const types = sortedShiftTypes(shiftTypes);
   const typeById = new Map(types.map((t, i) => [t.id, { ...t, index: i }]));
   // Asked after the others so this page never sends Airtable more than four
@@ -234,6 +236,7 @@ export async function getOverview(at, now = new Date()) {
       return {
         staffId: id,
         name: nameOf.get(id),
+        photo: photoOf.get(id) ?? null,
         shifts,
         // For "Mark absent" from the table: the shifts not already marked.
         openShiftIds: openShifts.map((t) => t.id),
@@ -297,7 +300,7 @@ export async function getHours(at, from, to, now = new Date()) {
     absencesBetween(at, from, addDays(to, 1)),
     shiftTypeRows(at),
   ]);
-  const { nameOf, active } = staffIndex(staffRows);
+  const { nameOf, photoOf, active } = staffIndex(staffRows);
   const typeById = new Map(sortedShiftTypes(shiftTypes).map((t, i) => [t.id, { ...t, index: i }]));
   const absencesOf = new Map();
   for (const a of absenceRows.map((r) => absenceView(r, typeById))) {
@@ -324,6 +327,7 @@ export async function getHours(at, from, to, now = new Date()) {
       return {
         staffId: id,
         name: nameOf.get(id),
+        photo: photoOf.get(id) ?? null,
         minutes,
         shifts: list.length,
         days: new Set(list.map((p) => p.date)).size,
