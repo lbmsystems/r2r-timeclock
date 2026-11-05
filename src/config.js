@@ -43,6 +43,30 @@ export const PUNCHES = {
   editReason: "fldHobY4O9ZOXOyCz",
 };
 
+// A scheduled shift someone didn't work, recorded by an owner. The Schedule
+// table is never changed, so it keeps showing who was meant to work.
+export const ABSENCES = {
+  table: "tblFXErDeDE1kOoB4",
+  summary: "fldSKgQovyZKBoi7q",
+  date: "fldteo428wl9AVyR1", // "YYYY-MM-DD"
+  staff: "fldUraTvZX4wcOBRs", // link -> Staff
+  shifts: "fld38N0I1251GA4DS", // link -> Shift Types
+  reason: "fldTBBqtMyojsTdib", // one of ABSENCE_REASONS
+  note: "fldzlSK4KpmVDDssh",
+  recordedBy: "fldsoKl7unP21lKtn",
+  recordedAt: "fldP3XGj96Gvf8D6g",
+};
+
+// Must match the Reason field's options in Airtable exactly.
+export const ABSENCE_REASONS = [
+  "Called out sick",
+  "No-show",
+  "Personal / family",
+  "Covered by someone else",
+  "Not needed (schedule changed)",
+  "Other",
+];
+
 // Airtable, for links from the dashboard.
 export const AIRTABLE_URL = "https://airtable.com/appN03Pyn2NzRRY95";
 

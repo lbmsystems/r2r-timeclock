@@ -220,7 +220,7 @@
     });
   }
 
-  var STATUS_TEXT = { in: "Clocked in", done: "Worked today", missing: "Not clocked in yet", scheduled: "Scheduled" };
+  var STATUS_TEXT = { in: "Clocked in", done: "Worked today", missing: "Not clocked in yet", scheduled: "Scheduled", out: "Out today" };
   var PHASE_TAG = { now: ["Now", "tag tag-now"], next: ["Up next", "tag tag-next"], later: ["Later", "tag"], done: ["Done", "tag"] };
 
   // ---- dates on the schedule view ("YYYY-MM-DD", calendar math in UTC)
@@ -332,7 +332,8 @@
         row.appendChild(el("span", "avatar", initial(p.name)));
         var t = el("span");
         t.appendChild(el("span", "person-name", p.name));
-        var label = p.status === "missing" && s.phase === "done" ? "Didn't clock in" : STATUS_TEXT[p.status] || "";
+        var label = p.status === "missing" && s.phase === "done" ? "Didn't clock in"
+          : p.status === "out" && !isToday ? "Out" : STATUS_TEXT[p.status] || "";
         t.appendChild(el("span", "person-sub", label));
         row.appendChild(t);
         card.appendChild(row);

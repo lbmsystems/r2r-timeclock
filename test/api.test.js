@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { handleApi } from "../src/worker.js";
-import { STAFF, SHIFT_TYPES, SCHEDULE, PUNCHES } from "../src/config.js";
+import { STAFF, SHIFT_TYPES, SCHEDULE, PUNCHES, ABSENCES } from "../src/config.js";
 import { hashPin } from "../src/pin.js";
 import { resetCaches } from "../src/kiosk.js";
 import { airtable } from "../src/airtable.js";
@@ -15,7 +15,7 @@ const ORIGIN = "https://clock.example";
 // Wednesday Nov 4, 2026; Eastern is UTC-5.
 const at = (hhmm, day = "2026-11-04") => new Date(`${day}T${hhmm}:00-05:00`);
 
-async function setup(extraPunches = []) {
+async function setup(extraPunches = [], absences = []) {
   resetCaches();
   const fake = fakeAirtable({
     [STAFF.table]: [
@@ -24,14 +24,15 @@ async function setup(extraPunches = []) {
       { id: "recGone0000000000", fields: { [STAFF.name]: "Former", [STAFF.active]: false } },
     ],
     [SHIFT_TYPES.table]: [
-      { id: "recMorning000000", fields: { [SHIFT_TYPES.name]: "Morning", [SHIFT_TYPES.start]: "07:00", [SHIFT_TYPES.end]: "13:00", [SHIFT_TYPES.order]: 1 } },
-      { id: "recMidday0000000", fields: { [SHIFT_TYPES.name]: "Midday", [SHIFT_TYPES.start]: "13:00", [SHIFT_TYPES.end]: "16:00", [SHIFT_TYPES.order]: 2 } },
-      { id: "recAfternoon0000", fields: { [SHIFT_TYPES.name]: "Afternoon", [SHIFT_TYPES.start]: "16:00", [SHIFT_TYPES.end]: "18:00", [SHIFT_TYPES.order]: 3 } },
+      { id: "recMorning0000000", fields: { [SHIFT_TYPES.name]: "Morning", [SHIFT_TYPES.start]: "07:00", [SHIFT_TYPES.end]: "13:00", [SHIFT_TYPES.order]: 1 } },
+      { id: "recMidday00000000", fields: { [SHIFT_TYPES.name]: "Midday", [SHIFT_TYPES.start]: "13:00", [SHIFT_TYPES.end]: "16:00", [SHIFT_TYPES.order]: 2 } },
+      { id: "recAfternoon00000", fields: { [SHIFT_TYPES.name]: "Afternoon", [SHIFT_TYPES.start]: "16:00", [SHIFT_TYPES.end]: "18:00", [SHIFT_TYPES.order]: 3 } },
     ],
     [SCHEDULE.table]: [
-      { fields: { [SCHEDULE.date]: "2026-11-04", [SCHEDULE.shift]: ["recMorning000000"], [SCHEDULE.staff]: [SELMA, ASHA] } },
-      { fields: { [SCHEDULE.date]: "2026-11-05", [SCHEDULE.shift]: ["recMorning000000"], [SCHEDULE.staff]: [ASHA] } },
+      { fields: { [SCHEDULE.date]: "2026-11-04", [SCHEDULE.shift]: ["recMorning0000000"], [SCHEDULE.staff]: [SELMA, ASHA] } },
+      { fields: { [SCHEDULE.date]: "2026-11-05", [SCHEDULE.shift]: ["recMorning0000000"], [SCHEDULE.staff]: [ASHA] } },
     ],
+    [ABSENCES.table]: absences,
     [PUNCHES.table]: extraPunches,
   });
   let clock = at("08:52");
@@ -230,10 +231,11 @@ test("a kiosk refresh stays well under Airtable's 5-per-second limit", async () 
   await call("GET", "/api/state");
   // Reads only: the first refresh also saves Selma's typed New PIN once.
   const reads = fake.calls.filter((c) => c.method === "GET").length;
-  assert.ok(reads <= 4, `first refresh made ${reads} Airtable reads`);
+  assert.ok(reads <= 5, `first refresh made ${reads} Airtable reads`);
   fake.calls.length = 0;
   await call("GET", "/api/state");
-  assert.equal(fake.calls.length, 3); // shift times come from the cache
+  // staff, punches, today's schedule, today's absences; shift times are cached
+  assert.equal(fake.calls.length, 4);
 });
 
 test("Airtable saying 'too many requests' is retried, not shown as an error", async () => {
@@ -248,4 +250,15 @@ test("Airtable saying 'too many requests' is retried, not shown as an error", as
 
   const always = airtable("t", { fetchImpl: async () => new Response("no", { status: 429 }), retryDelays: [0, 0] });
   await assert.rejects(always.list("tblX"), /Airtable 429/);
+});
+
+test("the kiosk shows someone marked absent as out, without the reason", async () => {
+  const { call, setClock } = await setup([], [
+    { fields: { [ABSENCES.date]: "2026-11-04", [ABSENCES.staff]: [SELMA], [ABSENCES.shifts]: ["recMorning0000000"], [ABSENCES.reason]: "Called out sick" } },
+  ]);
+  setClock(at("09:00"));
+  const r = await call("GET", "/api/state");
+  const morning = r.body.shifts[0];
+  assert.deepEqual(morning.people.map((p) => [p.name, p.status]), [["Asha", "missing"], ["Selma", "out"]]);
+  assert.ok(!JSON.stringify(r.body).includes("sick"));
 });

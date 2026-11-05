@@ -48,6 +48,10 @@
     bad_range: "The start date has to be before the end date.",
     range_too_long: "Pick a range of 62 days or less.",
     unknown_staff: "That person isn't in Airtable any more.",
+    bad_reason: "Pick a reason.",
+    not_scheduled: "They aren't scheduled for that shift.",
+    already_marked: "They're already marked absent for that shift.",
+    date_out_of_range: "That date is too far away.",
   };
   function message(err) { return ERRORS[err && err.error] || "Something went wrong (" + ((err && err.error) || "error") + ")."; }
 
@@ -138,16 +142,39 @@
       append(body, append(r, c));
     }
     var STATUS = { in: ["Clocked in", "pill pill-in"], done: ["Done for the day", "pill"], late: ["Not in yet", "pill pill-late"],
-      no_show: ["Didn't come in", "pill pill-late"], scheduled: ["Scheduled", "pill"], off: ["Not scheduled", "pill"] };
+      no_show: ["Didn't come in", "pill pill-late"], scheduled: ["Scheduled", "pill"], off: ["Not scheduled", "pill"],
+      absent: ["Absent", "pill pill-absent"] };
     o.people.forEach(function (p) {
       var st = STATUS[p.status] || STATUS.off;
-      var row = el("tr");
+      if (p.status === "absent" && p.absences.length) st = ["Absent · " + shortReason(p.absences[0].reason), "pill pill-absent"];
+      var row = el("tr", p.status === "absent" ? "row-absent" : null);
       var who = append(el("div", "who"), el("span", "avatar", initial(p.name)), el("span", null, p.name));
       var more = el("button", "link-btn", p.punches.length ? "Times" : "");
       more.type = "button";
-      append(row, append(el("td"), who), el("td", null, p.shifts.join(", ") || "—"), append(el("td"), el("span", st[1], st[0])),
+      var actions = el("div", "row-actions");
+      if (p.punches.length) actions.appendChild(more);
+      p.absences.forEach(function (ab) {
+        var undo = el("button", "link-btn", "Undo absent" + (p.absences.length > 1 ? " (" + ab.shiftNames.join(", ") + ")" : ""));
+        undo.type = "button";
+        undo.addEventListener("click", function () {
+          if (!confirm("Remove the absence for " + p.name + " (" + ab.shiftNames.join(", ") + ")?")) return;
+          api("/absences/" + ab.id, { method: "DELETE" }).then(loadOverview).catch(function (x) { alert(message(x)); });
+        });
+        actions.appendChild(undo);
+      });
+      if (!p.punches.length && p.openShiftIds.length) {
+        var markAbsent = el("button", "link-btn", "Mark absent");
+        markAbsent.type = "button";
+        markAbsent.addEventListener("click", function () {
+          openAbsence({ staffId: p.staffId, name: p.name, date: o.today, shiftIds: p.openShiftIds, shiftNames: p.openShiftNames });
+        });
+        actions.appendChild(markAbsent);
+      }
+      var statusCell = append(el("td"), el("span", st[1], st[0]));
+      if (p.status === "absent" && p.absences[0] && p.absences[0].note) statusCell.title = p.absences[0].note;
+      append(row, append(el("td"), who), el("td", null, p.shifts.join(", ") || "—"), statusCell,
         el("td", null, p.firstIn || "—"), el("td", null, p.lastOut || (p.status === "in" ? "…" : "—")),
-        el("td", "num", p.minutes ? duration(p.minutes) : "—"), append(el("td", "num"), p.punches.length ? more : null));
+        el("td", "num", p.minutes ? duration(p.minutes) : "—"), append(el("td"), actions));
       body.appendChild(row);
       if (p.punches.length) {
         var detail = el("tr", "detail");
@@ -196,10 +223,29 @@
       });
       row.appendChild(form);
     } else {
-      var add = el("button", "btn btn-small", "They worked? Add hours");
-      add.type = "button";
-      add.addEventListener("click", function () { openAdd(a.staffId); });
-      row.appendChild(add);
+      // Late or a no-show: either they did work (add the hours) or they
+      // didn't (mark them absent, with a reason).
+      var box = el("div", "resolve");
+      var resolve = el("button", "btn btn-dark btn-small", "Resolve");
+      resolve.type = "button";
+      var worked = el("button", "btn btn-small", "They worked: add hours");
+      worked.type = "button";
+      worked.hidden = true;
+      worked.addEventListener("click", function () { openAdd(a.staffId); });
+      var absent = el("button", "btn btn-small", "Mark absent");
+      absent.type = "button";
+      absent.hidden = true;
+      absent.addEventListener("click", function () {
+        openAbsence({ staffId: a.staffId, name: a.name, date: a.date, shiftIds: a.shiftIds, shiftNames: a.shiftNames });
+      });
+      resolve.addEventListener("click", function () {
+        resolve.hidden = true;
+        worked.hidden = false;
+        absent.hidden = false;
+        worked.focus();
+      });
+      append(box, resolve, worked, absent);
+      row.appendChild(box);
     }
     return row;
   }
@@ -296,21 +342,24 @@
       if (p.missing) check.appendChild(el("span", "pill pill-late", p.missing + " missing clock-out" + (p.missing > 1 ? "s" : "")));
       if (p.inProgress) check.appendChild(el("span", "pill pill-in", "Clocked in now"));
       if (p.edited) check.appendChild(el("span", "pill pill-edit", p.edited + " edited"));
+      if (p.absences.length) check.appendChild(el("span", "pill pill-absent", p.absences.length + " absent"));
       if (!p.missing && !p.inProgress && p.shifts) check.appendChild(el("span", "pill", "Ready"));
-      var more = el("button", "link-btn", p.shifts ? "Shifts" : "");
+      var hasDetail = p.shifts || p.absences.length;
+      var more = el("button", "link-btn", hasDetail ? "Details" : "");
       more.type = "button";
       append(row,
         append(el("td"), append(el("div", "who"), el("span", "avatar", initial(p.name)), el("span", null, p.name))),
         el("td", "num", String(p.days)), el("td", "num", String(p.shifts)),
         append(el("td", "num"), el("strong", null, duration(p.minutes))),
-        append(el("td"), check), append(el("td", "num"), p.shifts ? more : null));
+        append(el("td"), check), append(el("td", "num"), hasDetail ? more : null));
       body.appendChild(row);
-      if (p.shifts) {
+      if (hasDetail) {
         var detail = el("tr", "detail");
         detail.hidden = true;
         var cell = el("td");
         cell.colSpan = 6;
-        cell.appendChild(punchList(p.punches, p.name));
+        if (p.shifts) cell.appendChild(punchList(p.punches, p.name));
+        if (p.absences.length) cell.appendChild(absenceList(p.absences));
         append(detail, cell);
         body.appendChild(detail);
         more.addEventListener("click", function () { detail.hidden = !detail.hidden; });
@@ -344,17 +393,80 @@
         var cell = el("div");
         if (!c.people.length) cell.appendChild(el("div", "empty-cell", "—"));
         c.people.forEach(function (p) {
-          var chip = el("div", "chip");
+          var chip = el("div", "chip" + (p.status === "absent" ? " absent" : ""));
           var dot = el("i", "dot dot-" + p.status);
           dot.setAttribute("aria-hidden", "true");
           append(chip, dot, el("span", null, p.name));
-          chip.title = { worked: "Worked", in: "Clocked in now", missed: "Didn't clock in", scheduled: "Scheduled" }[p.status] || "";
+          chip.title = p.status === "absent" ? "Absent: " + p.reason
+            : { worked: "Worked", in: "Clocked in now", missed: "Didn't clock in", scheduled: "Scheduled" }[p.status] || "";
           cell.appendChild(chip);
         });
         g.appendChild(cell);
       });
     });
   }
+
+  function shortReason(r) {
+    return { "Called out sick": "sick", "No-show": "no-show", "Personal / family": "personal",
+      "Covered by someone else": "covered", "Not needed (schedule changed)": "not needed", "Other": "other" }[r] || r;
+  }
+
+  function absenceList(absences) {
+    var table = el("table", "punches");
+    absences.forEach(function (a) {
+      var r = el("tr", "absence-line");
+      append(r,
+        el("td", null, dayLabel(a.date, { weekday: "short", month: "short", day: "numeric" })),
+        el("td", null, "Absent · " + a.shiftNames.join(", ")),
+        el("td", null, a.reason),
+        el("td", null, a.note || ""),
+        el("td", "num", a.recordedBy ? "by " + a.recordedBy.split("@")[0] : ""));
+      table.appendChild(r);
+    });
+    return table;
+  }
+
+  // ---------------------------------------------------- absence dialog
+
+  var REASONS = ["Called out sick", "No-show", "Personal / family", "Covered by someone else", "Not needed (schedule changed)", "Other"];
+  var absenceState = null;
+  function openAbsence(target) {
+    absenceState = target;
+    $("absence-title").textContent = "Mark " + target.name + " absent";
+    $("absence-sub").textContent = dayLabel(target.date, { weekday: "long", month: "long", day: "numeric" }) +
+      " · " + target.shiftNames.join(", ") + ". The schedule stays as it is; this is saved separately.";
+    var box = $("absence-reasons");
+    box.querySelectorAll("label").forEach(function (l) { l.remove(); });
+    ((state.overview && state.overview.reasons) || REASONS).forEach(function (r) {
+      var label = el("label");
+      var input = el("input");
+      input.type = "radio";
+      input.name = "absence-reason";
+      input.value = r;
+      input.addEventListener("change", function () { $("absence-error").textContent = ""; });
+      append(label, input, el("span", null, r));
+      box.appendChild(label);
+    });
+    $("absence-note").value = "";
+    $("absence-error").textContent = "";
+    $("absence-dialog").showModal();
+  }
+  $("absence-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var picked = document.querySelector('input[name="absence-reason"]:checked');
+    if (!picked) { $("absence-error").textContent = message({ error: "bad_reason" }); return; }
+    $("absence-save").disabled = true;
+    api("/absences", { method: "POST", body: {
+      staffId: absenceState.staffId, date: absenceState.date, shiftIds: absenceState.shiftIds,
+      reason: picked.value, note: $("absence-note").value,
+    } }).then(function () {
+      $("absence-dialog").close();
+      route();
+    }).catch(function (x) {
+      $("absence-error").textContent = message(x);
+    }).then(function () { $("absence-save").disabled = false; });
+  });
+  $("absence-cancel").addEventListener("click", function () { $("absence-dialog").close(); });
 
   // ------------------------------------------------------- punch dialog
 
@@ -424,7 +536,7 @@
   // Keep "Today" live: alerts appear as shifts end, without a reload. Skip
   // a refresh while someone is typing a fix.
   setInterval(function () {
-    if (state.tab !== "today" || $("punch-dialog").open) return;
+    if (state.tab !== "today" || $("punch-dialog").open || $("absence-dialog").open) return;
     var a = document.activeElement;
     if (a && (a.tagName === "INPUT" || a.tagName === "SELECT")) return;
     loadOverview();

@@ -166,14 +166,16 @@ All in `src/config.js`:
 **<https://r2r-timeclock.learnbuildmaintain.workers.dev/admin/>**, for the
 owners only. It has three views:
 
-- **Today:** who is clocked in and today's hours, refreshed every minute,
-  plus a *Needs attention* list:
+- **Today:** everyone scheduled or clocked in today, Morning first, then
+  Midday, then Afternoon. Who is clocked in and today's hours refresh every
+  minute, plus a *Needs attention* list:
   - a shift left open from an earlier day (forgot to clock out). Enter the
     time they left and save;
   - someone still clocked in 30+ minutes after their last shift ended (or
     10+ hours with no shift);
   - someone scheduled who hasn't clocked in 15 minutes into their shift, or
-    never came in.
+    never came in. **Resolve** offers *They worked: add hours* or **Mark
+    absent** (below).
 - **Hours & payroll:** hours per person for this week, last week, the last
   two weeks, this or last month, or any range up to 62 days. Each person's
   shifts can be opened and fixed. **Download CSV** gives a row per shift
@@ -181,6 +183,17 @@ owners only. It has three views:
 - **Schedule:** a week grid with who worked, who is in now, and who was
   scheduled but didn't clock in. The schedule itself is still edited in
   Airtable.
+
+**Marking someone absent.** Use **Resolve → Mark absent** on an alert, or
+**Mark absent** on their row (also for someone calling out ahead of time).
+Pick a reason (*Called out sick, No-show, Personal / family, Covered by
+someone else, Not needed (schedule changed), Other*) and an optional note. The
+**Schedule** table is never changed. The absence is its own row in the
+**Absences** table, with the shift, reason, note, who recorded it and when,
+so the schedule still shows who was meant to work. The person then shows as
+*Absent* on Today, crossed out on the week grid, and counted under Hours
+(and in the CSV's *Absences* section). On the kiosk they show only as **Out
+today**, never with the reason. **Undo absent** on their row removes it.
 
 Every fix (a forgotten clock-out, a missed punch) needs a short reason. It
 is saved on the punch with *Source: Manual fix*, *Edited By* (the owner's

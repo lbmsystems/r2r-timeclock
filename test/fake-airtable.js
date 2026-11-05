@@ -60,7 +60,7 @@ export function fakeAirtable(tables) {
   const calls = [];
   async function fetchImpl(url, init = {}) {
     const u = new URL(url);
-    const [, , base, table] = u.pathname.split("/");
+    const [, , base, table, recordId] = u.pathname.split("/");
     if (base !== BASE_ID) throw new Error("wrong base " + base);
     if (!db[table]) return new Response("no table", { status: 404 });
     const method = init.method ?? "GET";
@@ -74,6 +74,12 @@ export function fakeAirtable(tables) {
     if (method === "GET") {
       const f = u.searchParams.get("filterByFormula");
       return Response.json({ records: db[table].filter((r) => matches(r, f)).map(strip) });
+    }
+    if (method === "DELETE") {
+      const i = db[table].findIndex((r) => r.id === recordId);
+      if (i < 0) return new Response("not found", { status: 404 });
+      db[table].splice(i, 1);
+      return Response.json({ id: recordId, deleted: true });
     }
     const body = JSON.parse(init.body);
     if (method === "POST") {

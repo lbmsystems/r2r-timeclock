@@ -100,6 +100,7 @@ h1 { margin: 0; font-weight: 400; font-size: 40px; letter-spacing: -0.02em; line
 .person-sub { display: block; font-size: 15px; font-weight: 500; color: var(--muted-2); }
 .person.s-in { background: var(--in-bg); } .person.s-in .avatar { background: var(--in); color: #fff; } .person.s-in .person-sub { color: var(--in-ink); }
 .person.s-missing { background: var(--late-bg); } .person.s-missing .avatar { background: #F6E0D4; color: var(--late); } .person.s-missing .person-sub { color: var(--late); }
+.person.s-out { opacity: 0.6; } .person.s-out .person-name { text-decoration: line-through; }
 .shift-empty { font-size: 16px; color: var(--muted); padding: 6px 2px; }
 /* day picker under the schedule */
 .datebar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px; border-radius: 20px; background: var(--card); border: 1px solid var(--line); }

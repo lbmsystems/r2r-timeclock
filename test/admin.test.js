@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { handleAdmin } from "../src/worker.js";
-import { STAFF, SHIFT_TYPES, SCHEDULE, PUNCHES } from "../src/config.js";
+import { STAFF, SHIFT_TYPES, SCHEDULE, PUNCHES, ABSENCES } from "../src/config.js";
 import { resetCaches } from "../src/kiosk.js";
 import { resetAccessCache } from "../src/access.js";
 import { fakeAirtable } from "./fake-airtable.js";
@@ -34,22 +34,23 @@ async function token(claims = {}, { kid = "k1", key = keyPair.privateKey } = {})
   return `${head}.${body}.${b64url(new Uint8Array(sig))}`;
 }
 
-function setup({ env: extraEnv = {} } = {}) {
+function setup({ env: extraEnv = {}, absences = [] } = {}) {
   resetCaches();
   resetAccessCache();
   const fake = fakeAirtable({
     [STAFF.table]: Object.entries(ids).map(([k, id]) => ({ id, fields: { [STAFF.name]: k[0].toUpperCase() + k.slice(1), [STAFF.active]: true } })),
     [SHIFT_TYPES.table]: [
-      { id: "recMorning000000", fields: { [SHIFT_TYPES.name]: "Morning", [SHIFT_TYPES.start]: "07:00", [SHIFT_TYPES.end]: "13:00", [SHIFT_TYPES.order]: 1 } },
-      { id: "recMidday0000000", fields: { [SHIFT_TYPES.name]: "Midday", [SHIFT_TYPES.start]: "13:00", [SHIFT_TYPES.end]: "16:00", [SHIFT_TYPES.order]: 2 } },
-      { id: "recAfternoon0000", fields: { [SHIFT_TYPES.name]: "Afternoon", [SHIFT_TYPES.start]: "16:00", [SHIFT_TYPES.end]: "18:00", [SHIFT_TYPES.order]: 3 } },
+      { id: "recMorning0000000", fields: { [SHIFT_TYPES.name]: "Morning", [SHIFT_TYPES.start]: "07:00", [SHIFT_TYPES.end]: "13:00", [SHIFT_TYPES.order]: 1 } },
+      { id: "recMidday00000000", fields: { [SHIFT_TYPES.name]: "Midday", [SHIFT_TYPES.start]: "13:00", [SHIFT_TYPES.end]: "16:00", [SHIFT_TYPES.order]: 2 } },
+      { id: "recAfternoon00000", fields: { [SHIFT_TYPES.name]: "Afternoon", [SHIFT_TYPES.start]: "16:00", [SHIFT_TYPES.end]: "18:00", [SHIFT_TYPES.order]: 3 } },
     ],
     [SCHEDULE.table]: [
-      { fields: { [SCHEDULE.date]: "2026-11-04", [SCHEDULE.shift]: ["recMorning000000"], [SCHEDULE.staff]: [ids.selma, ids.jimmy, ids.ileana] } },
-      { fields: { [SCHEDULE.date]: "2026-11-04", [SCHEDULE.shift]: ["recMidday0000000"], [SCHEDULE.staff]: [ids.daynely] } },
-      { fields: { [SCHEDULE.date]: "2026-11-03", [SCHEDULE.shift]: ["recMorning000000"], [SCHEDULE.staff]: [ids.asha, ids.jimmy] } },
-      { fields: { [SCHEDULE.date]: "2026-11-05", [SCHEDULE.shift]: ["recMorning000000"], [SCHEDULE.staff]: [ids.asha] } },
+      { fields: { [SCHEDULE.date]: "2026-11-04", [SCHEDULE.shift]: ["recMorning0000000"], [SCHEDULE.staff]: [ids.selma, ids.jimmy, ids.ileana] } },
+      { fields: { [SCHEDULE.date]: "2026-11-04", [SCHEDULE.shift]: ["recMidday00000000"], [SCHEDULE.staff]: [ids.daynely] } },
+      { fields: { [SCHEDULE.date]: "2026-11-03", [SCHEDULE.shift]: ["recMorning0000000"], [SCHEDULE.staff]: [ids.asha, ids.jimmy] } },
+      { fields: { [SCHEDULE.date]: "2026-11-05", [SCHEDULE.shift]: ["recMorning0000000"], [SCHEDULE.staff]: [ids.asha] } },
     ],
+    [ABSENCES.table]: absences,
     [PUNCHES.table]: [
       // Asha: clocked in yesterday, never out.
       { id: "recPunchAsha00001", fields: { [PUNCHES.staff]: [ids.asha], [PUNCHES.clockIn]: et("07:01", "2026-11-03").toISOString(), [PUNCHES.source]: "Kiosk" } },
@@ -186,7 +187,7 @@ test("the payroll CSV has a row per shift, totals, and can't smuggle in a formul
   assert.match(r.text, /^Name,Date,Clock in,Clock out,Hours,/);
   assert.match(r.text, /Ileana,2026-11-04,6:58 AM,1:04 PM,6\.10,Kiosk,,,"'=SUM\(1,2\)"/);
   assert.match(r.text, /Asha,2026-11-03,7:01 AM,\(missing\),/);
-  assert.match(r.text, /\r\nJimmy,5\.50,1,0\r\n/);
+  assert.match(r.text, /\r\nJimmy,5\.50,1,0,0\r\n/);
 });
 
 // -------------------------------------------------------------------- week
@@ -249,4 +250,89 @@ test("adding a missed punch", async () => {
   assert.equal(fake.db[PUNCHES.table].length, 5);
   const bad = await call("POST", "/admin/api/punches", { body: { staffId: "recNope0000000000", clockIn: "2026-11-04T13:00", reason: "x y" } });
   assert.equal(bad.status, 404);
+});
+
+// ------------------------------------------------------------------ order
+
+test("today lists people by shift: Morning, then Midday, then Afternoon", async () => {
+  const { call } = setup();
+  const r = await call("GET", "/admin/api/overview");
+  // Morning: Ileana, Jimmy, Selma (by name); Midday: Daynely.
+  assert.deepEqual(r.body.people.map((p) => p.name), ["Ileana", "Jimmy", "Selma", "Daynely"]);
+});
+
+// --------------------------------------------------------------- absences
+
+const sick = (extra = {}) => ({ staffId: ids.daynely, date: "2026-11-04", reason: "Called out sick", note: "Texted Tay at 6am", ...extra });
+
+test("marking someone absent clears their alert and records why, who and when", async () => {
+  const { fake, call } = setup();
+  const before = await call("GET", "/admin/api/overview");
+  const alert = before.body.attention.find((a) => a.type === "not_in");
+  assert.equal(alert.name, "Daynely");
+  assert.deepEqual(alert.shiftIds, ["recMidday00000000"]);
+
+  const r = await call("POST", "/admin/api/absences", { body: sick({ shiftIds: alert.shiftIds }) });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.shiftNames, ["Midday"]);
+  const row = fake.db[ABSENCES.table][0].fields;
+  assert.equal(row[ABSENCES.summary], "Daynely · Wed, Nov 4 · Midday");
+  assert.equal(row[ABSENCES.reason], "Called out sick");
+  assert.equal(row[ABSENCES.recordedBy], "tay@roottorise.example");
+  assert.equal(row[ABSENCES.recordedAt], et("15:30").toISOString());
+  assert.equal(fake.db[SCHEDULE.table].length, 4, "the schedule itself is untouched");
+
+  const after = await call("GET", "/admin/api/overview");
+  assert.ok(!after.body.attention.some((a) => a.name === "Daynely"));
+  const daynely = after.body.people.find((p) => p.name === "Daynely");
+  assert.equal(daynely.status, "absent");
+  assert.equal(daynely.absences[0].reason, "Called out sick");
+
+});
+
+test("a no-show can be marked for every missed shift at once, and undone", async () => {
+  const { call } = setup();
+  const r = await call("POST", "/admin/api/absences", { body: { staffId: ids.jimmy, date: "2026-11-04", reason: "No-show" } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.shiftNames, ["Morning"]);
+  let o = await call("GET", "/admin/api/overview");
+  assert.ok(!o.body.attention.some((a) => a.type === "no_show"));
+
+  const undo = await call("DELETE", `/admin/api/absences/${r.body.id}`);
+  assert.equal(undo.status, 200);
+  o = await call("GET", "/admin/api/overview");
+  assert.ok(o.body.attention.some((a) => a.type === "no_show" && a.name === "Jimmy"));
+});
+
+test("absences are checked before they are saved", async () => {
+  const { call } = setup();
+  const post = (body) => call("POST", "/admin/api/absences", { body });
+  assert.equal((await post(sick({ reason: "Felt like it" }))).body.error, "bad_reason");
+  assert.equal((await post(sick({ staffId: ids.asha }))).body.error, "not_scheduled", "Asha isn't on Wednesday");
+  assert.equal((await post(sick({ shiftIds: ["recMorning0000000"] }))).body.error, "not_scheduled", "Daynely isn't on Morning");
+  assert.equal((await post(sick({ date: "2027-06-01" }))).body.error, "date_out_of_range");
+  assert.equal((await post(sick())).status, 200);
+  const again = await post(sick());
+  assert.equal(again.status, 409);
+  assert.equal(again.body.error, "already_marked");
+  assert.equal((await call("DELETE", "/admin/api/absences/recNope0000000000")).status, 404);
+});
+
+test("someone calling out ahead of time can be marked for a future day", async () => {
+  const { call } = setup();
+  const r = await call("POST", "/admin/api/absences", { body: { staffId: ids.asha, date: "2026-11-05", reason: "Personal / family" } });
+  assert.equal(r.status, 200);
+  const w = await call("GET", "/admin/api/week?start=2026-11-01");
+  const thu = w.body.shifts[0].cells.find((c) => c.date === "2026-11-05").people;
+  assert.deepEqual(thu, [{ name: "Asha", status: "absent", reason: "Personal / family" }]);
+});
+
+test("absences show in the hours view and the payroll CSV", async () => {
+  const { call } = setup();
+  await call("POST", "/admin/api/absences", { body: sick() });
+  const h = await call("GET", "/admin/api/hours?from=2026-11-01&to=2026-11-07");
+  assert.equal(h.body.totals.absences, 1);
+  assert.equal(h.body.people.find((p) => p.name === "Daynely").absences[0].reason, "Called out sick");
+  const csv = await call("GET", "/admin/api/hours.csv?from=2026-11-01&to=2026-11-07");
+  assert.match(csv.text, /\r\nAbsences\r\nName,Date,Shifts,Reason,Note,Recorded by\r\nDaynely,2026-11-04,Midday,Called out sick,Texted Tay at 6am,tay@roottorise\.example\r\n/);
 });
