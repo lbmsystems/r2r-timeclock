@@ -88,6 +88,11 @@ h1 { margin: 0; font-weight: 400; font-size: 40px; letter-spacing: -0.02em; line
 .shifts { flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start; }
 .shift { display: flex; flex-direction: column; gap: 12px; padding: 22px; border-radius: 22px; background: var(--card); border: 2px solid var(--line); }
 .shift.is-now { border-color: var(--ink); }
+/* A shift whose time has passed fades back. Anyone still clocked in from it
+   stays at full strength: they still need to clock out. */
+.shift.is-done { background: #F4F2EE; border-color: var(--line-soft); }
+.shift.is-done .shift-head, .shift.is-done .shift-empty,
+.shift.is-done .person:not(.s-in) { opacity: 0.5; }
 .shift-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
 .shift h2 { margin: 0; font-size: 26px; font-weight: 500; }
 .shift-time { font-size: 18px; color: var(--muted); font-weight: 500; margin-top: 2px; }

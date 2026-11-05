@@ -317,7 +317,8 @@
     if (!shifts) return;
     if (!shifts.length) { wrap.appendChild(el("div", "empty", "No shifts set up yet.")); return; }
     shifts.forEach(function (s) {
-      var card = el("section", "shift" + (s.phase === "now" ? " is-now" : ""));
+      var over = s.phase === "done" || s.phase === "past";
+      var card = el("section", "shift" + (s.phase === "now" ? " is-now" : "") + (over ? " is-done" : ""));
       var head = el("div", "shift-head");
       var left = el("div");
       left.appendChild(el("h2", null, s.name));
