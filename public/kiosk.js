@@ -22,7 +22,23 @@
     idleTimer: null,
     doneTimer: null,
     loadedAt: Date.now(),
+    schedDate: null,      // another day shown on the schedule view; null = today
+    schedData: null,      // that day's /api/schedule reply
+    schedError: "",
+    schedTimer: null,
+    troubleSince: 0,      // when the current connection trouble started; 0 = none
+    problemIsSetup: false,
+    retryTimer: null,
   };
+
+  // A hiccup (Airtable busy for a few seconds, Wi-Fi blip) is retried quietly.
+  // The warning banner only appears if the trouble lasts longer than this.
+  var NOTICE_GRACE_MS = 20000;
+  var QUICK_RETRY_MS = 6000;
+  var AFTER_PUNCH_REFRESH_MS = 5000;
+
+  var SCHED_IDLE_MS = 60000;   // a future day snaps back to today after this
+  var DAYS_BACK = 14, DAYS_AHEAD = 90; // same window the Worker allows
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -104,6 +120,8 @@
         state.data = data;
         state.online = true;
         state.problem = "";
+        state.problemIsSetup = false;
+        state.troubleSince = 0;
         render();
         return flushQueue();
       })
@@ -113,12 +131,30 @@
         if (err && err.reply) {
           state.online = true;
           state.problem = describeProblem(err.reply, err.status);
+          state.problemIsSetup = err.reply.error === "not_configured";
         } else {
           state.online = false;
           state.problem = "";
+          state.problemIsSetup = false;
         }
+        noteTrouble();
         render();
       });
+  }
+
+  // Start (or continue) a spell of trouble: try again soon, and only show the
+  // banner if it is still going after NOTICE_GRACE_MS.
+  function noteTrouble() {
+    if (!state.troubleSince) {
+      state.troubleSince = Date.now();
+      setTimeout(renderNotice, NOTICE_GRACE_MS + 100);
+    }
+    if (!state.retryTimer && Date.now() - state.troubleSince < 30000) {
+      state.retryTimer = setTimeout(function () { state.retryTimer = null; loadState(); }, QUICK_RETRY_MS);
+    }
+  }
+  function troubleShowing() {
+    return state.troubleSince && Date.now() - state.troubleSince >= NOTICE_GRACE_MS;
   }
 
   function describeProblem(reply, status) {
@@ -145,11 +181,11 @@
     var box = $("notice");
     var msgs = [];
     var queued = readList(QUEUE_KEY);
-    if (state.problem) {
+    if (state.problem && (state.problemIsSetup || troubleShowing())) {
       msgs.push(state.problem);
-    } else if (!state.online) {
+    } else if (!state.online && troubleShowing()) {
       msgs.push("The time clock can't reach the internet. Clock in and out as usual; times are saved on this iPad and sent when it's back.");
-    } else if (queued.length) {
+    } else if (queued.length && troubleShowing()) {
       msgs.push("Sending " + queued.length + " saved punch" + (queued.length > 1 ? "es" : "") + "…");
     }
     readList(FAILED_KEY).forEach(function (f) {
@@ -187,20 +223,108 @@
   var STATUS_TEXT = { in: "Clocked in", done: "Worked today", missing: "Not clocked in yet", scheduled: "Scheduled" };
   var PHASE_TAG = { now: ["Now", "tag tag-now"], next: ["Up next", "tag tag-next"], later: ["Later", "tag"], done: ["Done", "tag"] };
 
+  // ---- dates on the schedule view ("YYYY-MM-DD", calendar math in UTC)
+
+  function todayStr() {
+    if (state.data) return state.data.today;
+    return new Intl.DateTimeFormat("en-CA", { timeZone: tz() }).format(now());
+  }
+  function selectedDate() { return state.schedDate || todayStr(); }
+  function parseDay(d) { var p = d.split("-").map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2])); }
+  function addDays(d, n) {
+    var t = parseDay(d);
+    t.setUTCDate(t.getUTCDate() + n);
+    return t.toISOString().slice(0, 10);
+  }
+  function dayLabel(d, opts) { return new Intl.DateTimeFormat("en-US", Object.assign({ timeZone: "UTC" }, opts)).format(parseDay(d)); }
+  function inRange(d) { var t = todayStr(); return d >= addDays(t, -DAYS_BACK) && d <= addDays(t, DAYS_AHEAD); }
+
+  function selectDate(d) {
+    if (!d || !inRange(d)) return;
+    clearTimeout(state.schedTimer);
+    if (d === todayStr()) {
+      state.schedDate = null;
+      state.schedData = null;
+      state.schedError = "";
+      renderSchedule();
+      return;
+    }
+    state.schedDate = d;
+    state.schedData = null;
+    state.schedError = "";
+    renderSchedule();
+    state.schedTimer = setTimeout(function () { selectDate(todayStr()); }, SCHED_IDLE_MS);
+    fetch("/api/schedule?date=" + encodeURIComponent(d), { cache: "no-store" })
+      .then(function (res) {
+        return res.json().then(function (data) { if (!res.ok) throw data; return data; });
+      })
+      .then(function (data) {
+        if (state.schedDate !== d) return; // someone already moved on
+        state.schedData = data;
+        renderSchedule();
+      })
+      .catch(function () {
+        if (state.schedDate !== d) return;
+        state.schedError = "Couldn't load that day. Check the connection and try again.";
+        renderSchedule();
+      });
+  }
+
+  function renderDateBar() {
+    var sel = selectedDate();
+    var today = todayStr();
+    var start = addDays(sel, -parseDay(sel).getUTCDay()); // the Sunday of that week
+    var chips = $("day-chips");
+    chips.textContent = "";
+    for (var i = 0; i < 7; i++) {
+      (function (d) {
+        var b = el("button", "chip" + (d === sel ? " is-sel" : "") + (d === today ? " is-today" : ""));
+        b.type = "button";
+        b.disabled = !inRange(d);
+        b.setAttribute("aria-pressed", String(d === sel));
+        b.setAttribute("aria-label", (d === today ? "Today, " : "") + dayLabel(d, { weekday: "long", month: "long", day: "numeric" }));
+        b.appendChild(el("span", null, d === today ? "Today" : dayLabel(d, { weekday: "short" })));
+        b.appendChild(el("strong", null, dayLabel(d, { day: "numeric" })));
+        b.appendChild(el("span", null, dayLabel(d, { month: "short" })));
+        b.addEventListener("click", function () { selectDate(d); });
+        chips.appendChild(b);
+      })(addDays(start, i));
+    }
+    $("week-prev").disabled = !inRange(addDays(start, -1));
+    $("week-next").disabled = !inRange(addDays(start, 7));
+    $("day-today").disabled = sel === today;
+    var pick = $("day-pick");
+    pick.min = addDays(today, -DAYS_BACK);
+    pick.max = addDays(today, DAYS_AHEAD);
+    pick.value = sel;
+  }
+
   function renderSchedule() {
+    renderDateBar();
     var wrap = $("shifts");
     wrap.textContent = "";
-    if (!state.data) return;
-    if (!state.data.shifts.length) { wrap.appendChild(el("div", "empty", "No shifts set up yet.")); return; }
-    state.data.shifts.forEach(function (s) {
+    var sel = selectedDate();
+    var isToday = sel === todayStr();
+    $("schedule-title").textContent = isToday
+      ? "Who's working today"
+      : "Who's working " + dayLabel(sel, { weekday: "long", month: "long", day: "numeric" });
+
+    if (!isToday) {
+      if (state.schedError) { wrap.appendChild(el("div", "empty", state.schedError)); return; }
+      if (!state.schedData) { wrap.appendChild(el("div", "empty", "Loading…")); return; }
+    }
+    var shifts = isToday ? (state.data ? state.data.shifts : null) : state.schedData.shifts;
+    if (!shifts) return;
+    if (!shifts.length) { wrap.appendChild(el("div", "empty", "No shifts set up yet.")); return; }
+    shifts.forEach(function (s) {
       var card = el("section", "shift" + (s.phase === "now" ? " is-now" : ""));
       var head = el("div", "shift-head");
       var left = el("div");
       left.appendChild(el("h2", null, s.name));
       left.appendChild(el("div", "shift-time", s.startLabel + " – " + s.endLabel));
       head.appendChild(left);
-      var tag = PHASE_TAG[s.phase] || PHASE_TAG.later;
-      head.appendChild(el("span", tag[1], tag[0]));
+      var tag = PHASE_TAG[s.phase];
+      if (tag) head.appendChild(el("span", tag[1], tag[0]));
       card.appendChild(head);
       if (!s.people.length) card.appendChild(el("div", "shift-empty", "Nobody scheduled"));
       s.people.forEach(function (p) {
@@ -220,6 +344,12 @@
   // ------------------------------------------------------------------ views
 
   function show(view) {
+    if (view !== "schedule" && state.schedDate) {
+      clearTimeout(state.schedTimer);
+      state.schedDate = null;
+      state.schedData = null;
+      state.schedError = "";
+    }
     state.view = view;
     document.querySelector(".app").classList.remove("is-dark");
     ["names", "schedule", "pin", "done"].forEach(function (v) { $("view-" + v).hidden = v !== view; });
@@ -322,7 +452,16 @@
       })
       .then(function (r) {
         state.busy = false;
-        if (r.status === 200) { showDone(r.data, false); loadState(); return; }
+        if (r.status === 200) {
+          // Show the change right away, and refresh from Airtable a little
+          // later, so the punch and the refresh don't arrive at Airtable in
+          // the same second.
+          person.clockedInAt = r.data.action === "in" ? r.data.at : null;
+          person.clockedInLabel = r.data.action === "in" ? r.data.atLabel : null;
+          showDone(r.data, false);
+          setTimeout(loadState, AFTER_PUNCH_REFRESH_MS);
+          return;
+        }
         var e = r.data.error;
         if (e === "wrong_pin") {
           pinError("That code didn't match." + (r.data.attemptsLeft ? " " + r.data.attemptsLeft + " tries left." : ""), true);
@@ -347,7 +486,7 @@
     var q = readList(QUEUE_KEY);
     q.push({ staffId: body.staffId, pin: body.pin, requestId: body.requestId, at: at.toISOString(), name: person.name, predicted: predicted });
     writeList(QUEUE_KEY, q);
-    state.online = false;
+    noteTrouble(); // retried in a few seconds; the banner waits out the grace period
     showDone({ action: predicted, name: person.name, at: at.toISOString(), atLabel: timeLabel(at) }, true);
   }
 
@@ -376,7 +515,7 @@
           return loadState();
         });
       })
-      .catch(function () { renderNotice(); });
+      .catch(function () { noteTrouble(); renderNotice(); });
   }
 
   // ------------------------------------------------------------------ done screen
@@ -405,7 +544,7 @@
       });
     }
     $("done-note").textContent = offline
-      ? "No internet right now, so this was saved on the iPad. It will be sent automatically when the connection is back."
+      ? "Saved on this iPad. It will finish syncing on its own in a moment, so there's no need to do it again."
       : isIn
         ? "Have a great day. Before you leave, tap your name again to clock out."
         : "Times look wrong? Let Tay or the director know so they can fix it.";
@@ -428,6 +567,22 @@
     b.addEventListener("click", function () { show(b.getAttribute("data-view")); render(); });
   });
   $("pin-back").addEventListener("click", function () { show("names"); });
+  $("week-prev").addEventListener("click", function () {
+    var sel = selectedDate();
+    var d = addDays(sel, -7);
+    selectDate(inRange(d) ? d : addDays(todayStr(), -DAYS_BACK));
+  });
+  $("week-next").addEventListener("click", function () {
+    var d = addDays(selectedDate(), 7);
+    selectDate(inRange(d) ? d : addDays(todayStr(), DAYS_AHEAD));
+  });
+  $("day-today").addEventListener("click", function () { selectDate(todayStr()); });
+  $("day-pick").addEventListener("change", function (e) { selectDate(e.target.value); });
+  $("day-pick").addEventListener("click", function (e) {
+    // Desktop browsers only open the calendar from their own icon; iPad
+    // opens it from a tap anywhere on the field.
+    try { if (e.target.showPicker) e.target.showPicker(); } catch (err) { /* already open */ }
+  });
   $("done-btn").addEventListener("click", function () { show("names"); render(); });
   $("notice").addEventListener("click", function () { writeList(FAILED_KEY, []); renderNotice(); });
   window.addEventListener("online", loadState);

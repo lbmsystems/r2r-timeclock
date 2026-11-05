@@ -9,7 +9,7 @@ import {
 import { formulaString } from "./airtable.js";
 import { hashPin, isValidPin, pinMatches } from "./pin.js";
 import {
-  localDate, localMinutes, zonedTime, weekStartDate, clockLabel, hhmmToMinutes,
+  localDate, localMinutes, zonedTime, weekStartDate, clockLabel, hhmmToMinutes, addDays,
 } from "./time.js";
 
 export class KioskError extends Error {
@@ -51,11 +51,24 @@ async function absorbNewPins(at, env, staffRecords) {
 
 // ---------------------------------------------------------------------- state
 
-async function openPunchesToday(at, now) {
+const isOpen = (p) => !p.fields[PUNCHES.clockOut];
+
+// Shift times change rarely, so each Worker instance keeps them for a few
+// minutes. That is one Airtable call fewer on every kiosk refresh, which
+// matters: Airtable allows only 5 calls per second.
+const SHIFT_TYPES_TTL_MS = 5 * 60 * 1000;
+let shiftTypesCache = null;
+async function shiftTypeRows(at) {
+  if (shiftTypesCache && Date.now() - shiftTypesCache.at < SHIFT_TYPES_TTL_MS) return shiftTypesCache.rows;
+  const rows = await at.list(SHIFT_TYPES.table);
+  shiftTypesCache = { at: Date.now(), rows };
+  return rows;
+}
+export function resetCaches() { shiftTypesCache = null; }
+
+function openToday(punches, now) {
   const today = localDate(now, TIME_ZONE);
-  const open = await at.list(PUNCHES.table, {
-    filterByFormula: `{${PUNCHES.clockOut}} = BLANK()`,
-  });
+  const open = punches.filter(isOpen);
   // A punch still open from an EARLIER day is a forgotten clock-out. It is
   // left for Tay or the owner to fix, and the person is treated as clocked
   // out, so tapping their name starts a fresh shift instead of closing
@@ -70,15 +83,19 @@ export async function getState(at, env, now = new Date()) {
   const today = localDate(now, TIME_ZONE);
   const dayStart = zonedTime(today, "00:00", TIME_ZONE);
 
-  const [staffRaw, open, todays, shiftTypes, schedule] = await Promise.all([
+  // One punches query covers both "still open" and "started today".
+  const [staffRaw, punches, shiftTypes, schedule] = await Promise.all([
     at.list(STAFF.table),
-    openPunchesToday(at, now),
-    at.list(PUNCHES.table, { filterByFormula: after(PUNCHES.clockIn, new Date(dayStart - 60000)) }),
-    at.list(SHIFT_TYPES.table),
+    at.list(PUNCHES.table, {
+      filterByFormula: `OR({${PUNCHES.clockOut}} = BLANK(), ${after(PUNCHES.clockIn, new Date(dayStart - 60000))})`,
+    }),
+    shiftTypeRows(at),
     at.list(SCHEDULE.table, {
       filterByFormula: `DATETIME_FORMAT({${SCHEDULE.date}}, 'YYYY-MM-DD') = ${formulaString(today)}`,
     }),
   ]);
+  const open = openToday(punches, now);
+  const todays = punches.filter((p) => p.fields[PUNCHES.clockIn] && new Date(p.fields[PUNCHES.clockIn]) >= dayStart);
   const staffRecords = await absorbNewPins(at, env, staffRaw);
 
   const inSince = new Map();
@@ -104,55 +121,10 @@ export async function getState(at, env, now = new Date()) {
     };
   });
 
-  // Today's shifts, earliest first, each with who is scheduled and where
-  // they are.
-  const nowMin = localMinutes(now, TIME_ZONE);
-  const types = shiftTypes
-    .map((t) => ({
-      id: t.id,
-      name: t.fields[SHIFT_TYPES.name] ?? "Shift",
-      start: hhmmToMinutes(t.fields[SHIFT_TYPES.start]),
-      end: hhmmToMinutes(t.fields[SHIFT_TYPES.end]),
-      startLabel: t.fields[SHIFT_TYPES.start] ?? "",
-      endLabel: t.fields[SHIFT_TYPES.end] ?? "",
-      order: t.fields[SHIFT_TYPES.order] ?? 99,
-    }))
-    .filter((t) => t.start !== null && t.end !== null)
-    .sort((a, b) => a.order - b.order || a.start - b.start);
-
-  let nextMarked = false;
-  const shifts = types.map((t) => {
-    const ids = new Set();
-    for (const row of schedule) {
-      if (linkIds(row.fields[SCHEDULE.shift]).includes(t.id)) {
-        for (const id of linkIds(row.fields[SCHEDULE.staff])) ids.add(id);
-      }
-    }
-    let phase = "later";
-    if (nowMin >= t.end) phase = "done";
-    else if (nowMin >= t.start) phase = "now";
-    else if (!nextMarked) { phase = "next"; nextMarked = true; }
-
-    const people = [...ids]
-      .filter((id) => nameOf.has(id))
-      .map((id) => {
-        let status = "scheduled";
-        if (inSince.has(id)) status = "in";
-        else if (workedToday.has(id)) status = "done";
-        else if (nowMin >= t.start + LATE_GRACE_MINUTES) status = "missing";
-        return { id, name: nameOf.get(id), status };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    return {
-      name: t.name,
-      start: t.startLabel,
-      end: t.endLabel,
-      startLabel: clockLabel(zonedTime(today, t.startLabel, TIME_ZONE), TIME_ZONE),
-      endLabel: clockLabel(zonedTime(today, t.endLabel, TIME_ZONE), TIME_ZONE),
-      phase,
-      people,
-    };
+  const shifts = buildShifts(shiftTypes, schedule, nameOf, today, {
+    nowMin: localMinutes(now, TIME_ZONE),
+    inSince,
+    workedToday,
   });
 
   return { now: iso(now), timeZone: TIME_ZONE, today, staff, shifts };
@@ -190,9 +162,12 @@ export async function punch(at, env, body, now = new Date()) {
 
   // A double tap, or a retry of a request that did land, returns the first
   // result instead of punching twice.
-  const seen = await at.list(PUNCHES.table, {
-    filterByFormula: `{${PUNCHES.requestId}} = ${formulaString(requestId)}`,
+  // One query: a punch this request already made (a double tap or a
+  // retry), plus every open punch.
+  const candidates = await at.list(PUNCHES.table, {
+    filterByFormula: `OR({${PUNCHES.requestId}} = ${formulaString(requestId)}, {${PUNCHES.clockOut}} = BLANK())`,
   });
+  const seen = candidates.filter((p) => p.fields[PUNCHES.requestId] === requestId);
 
   const [staffRec] = await at.list(STAFF.table, {
     filterByFormula: `RECORD_ID() = ${formulaString(staffId)}`,
@@ -228,18 +203,18 @@ export async function punch(at, env, body, now = new Date()) {
     record = mine;
     action = mine.fields[PUNCHES.clockOut] ? "out" : "in";
   } else {
-    const openToday = (await openPunchesToday(at, when))
+    const mineOpen = openToday(candidates, when)
       .filter((p) => linkIds(p.fields[PUNCHES.staff]).includes(person.id))
       .filter((p) => new Date(p.fields[PUNCHES.clockIn]) <= when)
       .sort((a, b) => new Date(b.fields[PUNCHES.clockIn]) - new Date(a.fields[PUNCHES.clockIn]));
 
-    if (openToday.length) {
+    if (mineOpen.length) {
       const fields = { [PUNCHES.clockOut]: iso(when), [PUNCHES.requestId]: requestId };
       if (offlineNote) {
-        const prev = openToday[0].fields[PUNCHES.note];
+        const prev = mineOpen[0].fields[PUNCHES.note];
         fields[PUNCHES.note] = prev ? `${prev}\n${offlineNote}` : offlineNote;
       }
-      record = await at.update(PUNCHES.table, openToday[0].id, fields);
+      record = await at.update(PUNCHES.table, mineOpen[0].id, fields);
       action = "out";
     } else {
       const fields = {
@@ -279,4 +254,109 @@ export async function punch(at, env, body, now = new Date()) {
     result.weekMinutes = all.reduce((s, p) => s + minutesOf(p, now), 0);
   }
   return result;
+}
+
+// ------------------------------------------------------------------- shifts
+
+function sortedShiftTypes(rows) {
+  return rows
+    .map((t) => ({
+      id: t.id,
+      name: t.fields[SHIFT_TYPES.name] ?? "Shift",
+      start: hhmmToMinutes(t.fields[SHIFT_TYPES.start]),
+      end: hhmmToMinutes(t.fields[SHIFT_TYPES.end]),
+      startLabel: t.fields[SHIFT_TYPES.start] ?? "",
+      endLabel: t.fields[SHIFT_TYPES.end] ?? "",
+      order: t.fields[SHIFT_TYPES.order] ?? 99,
+    }))
+    .filter((t) => t.start !== null && t.end !== null)
+    .sort((a, b) => a.order - b.order || a.start - b.start);
+}
+
+/**
+ * The shifts on `date`, earliest first, each with who is scheduled.
+ * With `today` (attendance for the current day) each shift also gets a phase
+ * (done / now / next / later) and each person a status (in / done / missing /
+ * scheduled). Without it, another day: phase "past" or "future", and everyone
+ * is just "scheduled". The kiosk sits in a public spot, so who did or didn't
+ * clock in on other days stays in the owners' dashboard.
+ */
+function buildShifts(shiftTypeRows, scheduleRows, nameOf, date, today, otherDayPhase = "future") {
+  let nextMarked = false;
+  return sortedShiftTypes(shiftTypeRows).map((t) => {
+    const ids = new Set();
+    for (const row of scheduleRows) {
+      if (linkIds(row.fields[SCHEDULE.shift]).includes(t.id)) {
+        for (const id of linkIds(row.fields[SCHEDULE.staff])) ids.add(id);
+      }
+    }
+
+    let phase = otherDayPhase;
+    if (today) {
+      phase = "later";
+      if (today.nowMin >= t.end) phase = "done";
+      else if (today.nowMin >= t.start) phase = "now";
+      else if (!nextMarked) { phase = "next"; nextMarked = true; }
+    }
+
+    const people = [...ids]
+      .filter((id) => nameOf.has(id))
+      .map((id) => {
+        let status = "scheduled";
+        if (today) {
+          if (today.inSince.has(id)) status = "in";
+          else if (today.workedToday.has(id)) status = "done";
+          else if (today.nowMin >= t.start + LATE_GRACE_MINUTES) status = "missing";
+        }
+        return { id, name: nameOf.get(id), status };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return {
+      name: t.name,
+      start: t.startLabel,
+      end: t.endLabel,
+      startLabel: clockLabel(zonedTime(date, t.startLabel, TIME_ZONE), TIME_ZONE),
+      endLabel: clockLabel(zonedTime(date, t.endLabel, TIME_ZONE), TIME_ZONE),
+      phase,
+      people,
+    };
+  });
+}
+
+// How far from today the kiosk may look.
+export const SCHEDULE_DAYS_BACK = 14;
+export const SCHEDULE_DAYS_AHEAD = 90;
+
+/** Who is scheduled on another day (or today, with live statuses). */
+export async function getSchedule(at, env, date, now = new Date()) {
+  const today = localDate(now, TIME_ZONE);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || addDays(date, 0) !== date) {
+    throw new KioskError(400, "bad_date");
+  }
+  if (date < addDays(today, -SCHEDULE_DAYS_BACK) || date > addDays(today, SCHEDULE_DAYS_AHEAD)) {
+    throw new KioskError(400, "date_out_of_range", {
+      earliest: addDays(today, -SCHEDULE_DAYS_BACK),
+      latest: addDays(today, SCHEDULE_DAYS_AHEAD),
+    });
+  }
+  if (date === today) {
+    const state = await getState(at, env, now);
+    return { date, today, shifts: state.shifts };
+  }
+  const [staffRows, shiftTypes, schedule] = await Promise.all([
+    at.list(STAFF.table),
+    shiftTypeRows(at),
+    at.list(SCHEDULE.table, {
+      filterByFormula: `DATETIME_FORMAT({${SCHEDULE.date}}, 'YYYY-MM-DD') = ${formulaString(date)}`,
+    }),
+  ]);
+  const nameOf = new Map(
+    staffRows.filter((r) => r.fields[STAFF.name]).map((r) => [r.id, String(r.fields[STAFF.name])]),
+  );
+  return {
+    date,
+    today,
+    shifts: buildShifts(shiftTypes, schedule, nameOf, date, null, date < today ? "past" : "future"),
+  };
 }

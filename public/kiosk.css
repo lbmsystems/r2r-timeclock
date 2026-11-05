@@ -101,7 +101,21 @@ h1 { margin: 0; font-weight: 400; font-size: 40px; letter-spacing: -0.02em; line
 .person.s-in { background: var(--in-bg); } .person.s-in .avatar { background: var(--in); color: #fff; } .person.s-in .person-sub { color: var(--in-ink); }
 .person.s-missing { background: var(--late-bg); } .person.s-missing .avatar { background: #F6E0D4; color: var(--late); } .person.s-missing .person-sub { color: var(--late); }
 .shift-empty { font-size: 16px; color: var(--muted); padding: 6px 2px; }
-.cta { min-height: 64px; border: 0; border-radius: 18px; background: var(--ink); color: #fff; font-size: 21px; font-weight: 600; }
+/* day picker under the schedule */
+.datebar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px; border-radius: 20px; background: var(--card); border: 1px solid var(--line); }
+.day-chips { flex: 1 1 520px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.chip { min-height: 76px; border-radius: 14px; border: 1px solid var(--line); background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 13px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.chip strong { font-size: 26px; font-weight: 500; letter-spacing: 0; color: var(--ink); line-height: 1.1; }
+.chip.is-today { border-color: var(--ink); }
+.chip.is-sel { background: var(--ink); border-color: var(--ink); color: #D9D5CF; }
+.chip.is-sel strong { color: #fff; }
+.chip:disabled { opacity: 0.35; }
+.round-btn { flex-shrink: 0; width: 56px; height: 56px; border-radius: 28px; border: 1px solid var(--line); background: #fff; display: flex; align-items: center; justify-content: center; }
+.round-btn:disabled { opacity: 0.35; }
+.datebar-actions { display: flex; gap: 8px; }
+.pill-btn { position: relative; display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 0 18px; border-radius: 14px; border: 1px solid var(--line); background: #fff; font-size: 17px; font-weight: 500; cursor: pointer; }
+.pick-btn input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; cursor: pointer; }
+.sched-note { font-size: 17px; color: var(--muted); }
 
 /* PIN */
 .view-pin { flex-direction: row; gap: 0; margin: -4px calc(-1 * max(40px, env(safe-area-inset-right))) calc(-1 * max(28px, env(safe-area-inset-bottom))) calc(-1 * max(40px, env(safe-area-inset-left))); }
@@ -158,4 +172,6 @@ h1 { margin: 0; font-weight: 400; font-size: 40px; letter-spacing: -0.02em; line
   .view-pin { flex-direction: column; }
   .pin-right { flex: none; border-left: 0; border-top: 1px solid var(--line); }
   .done-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .day-chips { order: 3; flex-basis: 100%; }
+  .datebar-actions { margin-left: auto; }
 }

@@ -29,7 +29,7 @@
     </div>
     <nav class="toggle" aria-label="Kiosk view">
       <button type="button" data-view="names" aria-pressed="true">Clock in / out</button>
-      <button type="button" data-view="schedule" aria-pressed="false">Today's schedule</button>
+      <button type="button" data-view="schedule" aria-pressed="false">Schedule</button>
     </nav>
     <div class="clock">
       <div class="clock-time" id="clock-time">--:--</div>
@@ -58,9 +58,25 @@
 
   <!-- 2. Today's schedule -->
   <main class="view" id="view-schedule" hidden>
-    <h1>Who's working today</h1>
+    <h1 id="schedule-title">Who's working today</h1>
     <div class="shifts" id="shifts"></div>
-    <button type="button" class="cta" data-view="names">Not clocked in yet? Tap here to clock in</button>
+    <div class="datebar" role="group" aria-label="Choose a day">
+      <button type="button" class="round-btn" id="week-prev" aria-label="Previous week">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <div class="day-chips" id="day-chips"></div>
+      <button type="button" class="round-btn" id="week-next" aria-label="Next week">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+      <div class="datebar-actions">
+        <button type="button" class="pill-btn" id="day-today">Today</button>
+        <label class="pill-btn pick-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>
+          Pick a date
+          <input type="date" id="day-pick" aria-label="Pick a date">
+        </label>
+      </div>
+    </div>
   </main>
 
   <!-- 3. Enter code -->

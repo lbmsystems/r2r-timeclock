@@ -10,7 +10,12 @@ export class AirtableError extends Error {
   }
 }
 
-export function airtable(token, { baseId = BASE_ID, fetchImpl = fetch } = {}) {
+// Airtable allows 5 requests per second per base and answers 429 above that.
+// A short wait and a retry turns a burst (a punch, then the kiosk refreshing)
+// into a slightly slower reply instead of an error on the iPad.
+const RETRY_DELAYS_MS = [1000, 2000];
+
+export function airtable(token, { baseId = BASE_ID, fetchImpl = fetch, retryDelays = RETRY_DELAYS_MS } = {}) {
   const root = `https://api.airtable.com/v0/${baseId}`;
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -18,18 +23,24 @@ export function airtable(token, { baseId = BASE_ID, fetchImpl = fetch } = {}) {
   };
 
   async function call(method, path, body) {
-    let res;
-    try {
-      res = await fetchImpl(`${root}/${path}`, {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-    } catch (err) {
-      throw new AirtableError(0, `unreachable: ${err.message}`); // network, DNS, timeout
+    for (let attempt = 0; ; attempt++) {
+      let res;
+      try {
+        res = await fetchImpl(`${root}/${path}`, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+      } catch (err) {
+        throw new AirtableError(0, `unreachable: ${err.message}`); // network, DNS, timeout
+      }
+      if (res.status === 429 && attempt < retryDelays.length) {
+        await new Promise((r) => setTimeout(r, retryDelays[attempt]));
+        continue;
+      }
+      if (!res.ok) throw new AirtableError(res.status, await res.text());
+      return res.json();
     }
-    if (!res.ok) throw new AirtableError(res.status, await res.text());
-    return res.json();
   }
 
   return {

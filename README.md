@@ -26,10 +26,18 @@ nothing reaches the iPad until it is merged.
   so someone heading out can see they still need to clock out.
 - **Enter code.** Clocks you in or out, whichever is next. Five wrong codes in
   a row lock that name for 5 minutes.
-- **Today's schedule.** Today's Morning, Midday and Afternoon shifts, and who
-  is clocked in, done for the day, or 15+ minutes late.
+- **Schedule.** Today's Morning, Midday and Afternoon shifts, and who is
+  clocked in, done for the day, or 15+ minutes late. A week strip of dates,
+  arrows, *Today* and *Pick a date* show who is scheduled on any day from two
+  weeks back to three months ahead. Other days show the schedule only, not
+  who clocked in; that stays in the owners' dashboard. The view returns to
+  today after a minute untouched.
 - **Clock-out summary.** Time for this shift, today, and this week (Sunday to
   Saturday).
+- **Hiccups stay quiet.** Airtable allows about 5 requests a second. The
+  Worker retries when it is told to slow down, and the kiosk retries quietly
+  too. The warning banner appears only if trouble lasts more than about 20
+  seconds.
 - **No internet?** Punches are saved on the iPad with the time they happened
   and sent when the connection is back, in order. Anything saved more than 12
   hours earlier is refused and shown on screen to be entered by hand.
