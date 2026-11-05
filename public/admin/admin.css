@@ -142,10 +142,15 @@ dialog input, dialog select { min-height: 44px; border-radius: 10px; border: 1px
 .reasons legend { font-weight: 500; margin-bottom: 8px; padding: 0; }
 .reasons label { flex-direction: row; align-items: center; gap: 0; }
 .reasons input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.reasons span { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-weight: 500; cursor: pointer; }
+.reasons label > span { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-weight: 500; cursor: pointer; }
 .reasons input:checked + span { background: var(--ink); border-color: var(--ink); color: #fff; }
 .reasons input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
 .dot-absent { background: #CFCAC3; }
+.seg { display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--line-soft); }
+.seg button { flex: 1; min-height: 40px; border: 0; border-radius: 10px; background: transparent; font-weight: 500; color: var(--muted); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(47, 47, 46, 0.12); }
+.moved { display: block; font-size: 13px; color: var(--muted-2); }
+.reasons .hint { margin-left: 8px; font-size: 13px; font-weight: 400; opacity: 0.75; }
 .chip.absent { color: var(--muted-2); }
 .chip.absent span { text-decoration: line-through; }
 .absence-line td { color: var(--muted); }

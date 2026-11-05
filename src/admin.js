@@ -3,7 +3,7 @@
 // after access.js has confirmed the caller is an owner.
 
 import {
-  STAFF, SCHEDULE, PUNCHES, ABSENCES, ABSENCE_REASONS,
+  STAFF, SCHEDULE, PUNCHES, ABSENCES, ABSENCE_REASONS, SCHEDULE_CHANGES,
   TIME_ZONE, WEEK_STARTS_ON, LATE_GRACE_MINUTES, AIRTABLE_URL,
 } from "./config.js";
 import { formulaString } from "./airtable.js";
@@ -124,6 +124,21 @@ export async function getOverview(at, now = new Date()) {
   const { nameOf, active } = staffIndex(staffRows);
   const types = sortedShiftTypes(shiftTypes);
   const typeById = new Map(types.map((t, i) => [t.id, { ...t, index: i }]));
+  // Asked after the others so this page never sends Airtable more than four
+  // requests at once (its limit is five a second).
+  const changeRows = await at.list(SCHEDULE_CHANGES.table, {
+    filterByFormula: `DATETIME_FORMAT({${SCHEDULE_CHANGES.date}}, 'YYYY-MM-DD') = ${formulaString(today)}`,
+  });
+  const movedFrom = new Map(); // staff id -> names of shifts they were moved off today
+  for (const c of changeRows) {
+    for (const id of linkIds(c.fields[SCHEDULE_CHANGES.staff])) {
+      if (!movedFrom.has(id)) movedFrom.set(id, []);
+      for (const s of linkIds(c.fields[SCHEDULE_CHANGES.fromShift])) {
+        const name = typeById.get(s)?.name;
+        if (name && !movedFrom.get(id).includes(name)) movedFrom.get(id).push(name);
+      }
+    }
+  }
   const out = outByStaff(absenceRows);
   const absenceOf = new Map();
   for (const a of absenceRows) {
@@ -223,6 +238,8 @@ export async function getOverview(at, now = new Date()) {
         // For "Mark absent" from the table: the shifts not already marked.
         openShiftIds: openShifts.map((t) => t.id),
         openShiftNames: openShifts.map((t) => t.name),
+        shiftIds: scheduled.map((t) => t.id),
+        movedFrom: (movedFrom.get(id) ?? []).filter((n) => !shifts.includes(n)),
         absences,
         sortKey: scheduled.length ? Math.min(...scheduled.map((t) => typeById.get(t.id)?.index ?? 98)) : 99,
         status,
@@ -239,6 +256,11 @@ export async function getOverview(at, now = new Date()) {
     now: iso(now),
     today,
     reasons: ABSENCE_REASONS,
+    shiftTypes: types.map((t) => ({
+      id: t.id,
+      name: t.name,
+      label: `${clockLabel(zonedTime(today, t.startLabel, TIME_ZONE), TIME_ZONE)} – ${clockLabel(zonedTime(today, t.endLabel, TIME_ZONE), TIME_ZONE)}`,
+    })),
     todayLabel: dateLabel(today, { weekday: "long", month: "long", day: "numeric" }),
     timeLabel: clockLabel(now, TIME_ZONE),
     stats: {
@@ -565,4 +587,77 @@ export async function deleteAbsence(at, id) {
   if (!rec) throw new AdminError(404, "not_found");
   await at.remove(ABSENCES.table, id);
   return { id, deleted: true };
+}
+
+// ------------------------------------------------------------ change shift
+
+/**
+ * Move someone from one of their shifts to another on the same day, e.g.
+ * Taja from Morning to Afternoon. The Schedule table is updated, because the
+ * plan really changed, and the change is logged with who made it and when.
+ * One person at a time: a trade is two changes.
+ */
+export async function changeShift(at, email, body, now = new Date()) {
+  const staffId = String(body?.staffId ?? "");
+  const fromId = String(body?.fromShiftId ?? "");
+  const toId = String(body?.toShiftId ?? "");
+  for (const [v, code] of [[staffId, "bad_staff"], [fromId, "bad_shift"], [toId, "bad_shift"]]) {
+    if (!/^rec[A-Za-z0-9]{14}$/.test(v)) throw new AdminError(400, code);
+  }
+  if (fromId === toId) throw new AdminError(400, "same_shift");
+  const date = String(body?.date ?? "");
+  if (!isDate(date)) throw new AdminError(400, "bad_date");
+  const today = localDate(now, TIME_ZONE);
+  if (date < addDays(today, -ABSENCE_DAYS_BACK) || date > addDays(today, ABSENCE_DAYS_AHEAD)) {
+    throw new AdminError(400, "date_out_of_range");
+  }
+  const note = String(body?.note ?? "").trim().slice(0, 500);
+
+  const [[person], shiftTypes, schedule] = await Promise.all([
+    at.list(STAFF.table, { filterByFormula: `RECORD_ID() = ${formulaString(staffId)}` }),
+    shiftTypeRows(at),
+    at.list(SCHEDULE.table, {
+      filterByFormula: `DATETIME_FORMAT({${SCHEDULE.date}}, 'YYYY-MM-DD') = ${formulaString(date)}`,
+    }),
+  ]);
+  if (!person) throw new AdminError(404, "unknown_staff");
+  const types = sortedShiftTypes(shiftTypes);
+  const from = types.find((t) => t.id === fromId);
+  const to = types.find((t) => t.id === toId);
+  if (!from || !to) throw new AdminError(400, "bad_shift");
+
+  const on = (row, shiftId) => linkIds(row.fields[SCHEDULE.shift]).includes(shiftId);
+  const has = (row) => linkIds(row.fields[SCHEDULE.staff]).includes(staffId);
+  const fromRows = schedule.filter((r) => on(r, fromId) && has(r));
+  if (!fromRows.length) throw new AdminError(400, "not_scheduled");
+  if (schedule.some((r) => on(r, toId) && has(r))) throw new AdminError(409, "already_on_shift");
+
+  // Off the old shift...
+  for (const row of fromRows) {
+    await at.update(SCHEDULE.table, row.id, {
+      [SCHEDULE.staff]: linkIds(row.fields[SCHEDULE.staff]).filter((id) => id !== staffId),
+    });
+  }
+  // ...and onto the new one, adding a row for it if that shift has none yet.
+  const toRow = schedule.find((r) => on(r, toId) && linkIds(r.fields[SCHEDULE.shift]).length === 1);
+  if (toRow) {
+    await at.update(SCHEDULE.table, toRow.id, { [SCHEDULE.staff]: [...linkIds(toRow.fields[SCHEDULE.staff]), staffId] });
+  } else {
+    await at.create(SCHEDULE.table, { [SCHEDULE.date]: date, [SCHEDULE.shift]: [toId], [SCHEDULE.staff]: [staffId] });
+  }
+
+  const name = String(person.fields[STAFF.name] ?? "");
+  const summary = `${name} · ${dateLabel(date)} · ${from.name} → ${to.name}`;
+  const fields = {
+    [SCHEDULE_CHANGES.summary]: summary,
+    [SCHEDULE_CHANGES.date]: date,
+    [SCHEDULE_CHANGES.staff]: [staffId],
+    [SCHEDULE_CHANGES.fromShift]: [fromId],
+    [SCHEDULE_CHANGES.toShift]: [toId],
+    [SCHEDULE_CHANGES.changedBy]: email,
+    [SCHEDULE_CHANGES.changedAt]: iso(now),
+  };
+  if (note) fields[SCHEDULE_CHANGES.note] = note;
+  const rec = await at.create(SCHEDULE_CHANGES.table, fields);
+  return { id: rec.id, summary, from: from.name, to: to.name };
 }

@@ -13,6 +13,7 @@
 //   PATCH /admin/api/punches/<record id>          fix a punch's times
 //   POST  /admin/api/absences                     mark someone absent from a shift
 //   DELETE /admin/api/absences/<record id>        undo that
+//   POST  /admin/api/shift-changes                move someone to another shift that day
 //
 // Secrets (set with `npx wrangler secret put NAME`):
 //   AIRTABLE_TOKEN  personal access token, scoped to the R2R Time Clock base only
@@ -22,7 +23,7 @@ import { airtable, AirtableError } from "./airtable.js";
 import { getState, getSchedule, punch, KioskError } from "./kiosk.js";
 import { requireAdmin, AccessError } from "./access.js";
 import {
-  getOverview, getHours, hoursCsv, getWeek, updatePunch, createPunch, createAbsence, deleteAbsence, AdminError,
+  getOverview, getHours, hoursCsv, getWeek, updatePunch, createPunch, createAbsence, deleteAbsence, changeShift, AdminError,
 } from "./admin.js";
 
 const json = (status, body) =>
@@ -108,6 +109,7 @@ export async function handleAdmin(request, env, { fetchImpl, now } = {}) {
     }
     if (request.method === "POST" && path === "/punches") return json(200, await createPunch(at, email, body, when));
     if (request.method === "POST" && path === "/absences") return json(200, await createAbsence(at, email, body, when));
+    if (request.method === "POST" && path === "/shift-changes") return json(200, await changeShift(at, email, body, when));
     const m = /^\/punches\/(rec[A-Za-z0-9]{14})$/.exec(path);
     if (request.method === "PATCH" && m) return json(200, await updatePunch(at, email, m[1], body, when));
     return json(404, { error: "not_found" });

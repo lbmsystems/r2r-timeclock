@@ -57,15 +57,30 @@ export const ABSENCES = {
   recordedAt: "fldP3XGj96Gvf8D6g",
 };
 
-// Must match the Reason field's options in Airtable exactly.
+// Must match the Reason field's options in Airtable exactly. (A move to a
+// different shift is not an absence: that is a schedule change, below.)
 export const ABSENCE_REASONS = [
   "Called out sick",
   "No-show",
   "Personal / family",
   "Covered by someone else",
-  "Not needed (schedule changed)",
+  "Shift cancelled",
   "Other",
 ];
+
+// A log of shift changes made from the dashboard (Edit → Change shift). The
+// Schedule table holds the current plan; this keeps what it was before.
+export const SCHEDULE_CHANGES = {
+  table: "tblobLQt45pVlGsVq",
+  summary: "fldzlelVQHPuDoJ99",
+  date: "flddD0yGobHGkrI8V",
+  staff: "fldsdxjqPcOhklWl0",
+  fromShift: "fldtNujMGZB9HRm2B",
+  toShift: "flddxCt9qI7bdBrDz",
+  note: "fldcdEYsvCG9MLEaw",
+  changedBy: "fldIGRPZ207hvwNMA",
+  changedAt: "fldnLlptOGgxDOJjR",
+};
 
 // Airtable, for links from the dashboard.
 export const AIRTABLE_URL = "https://airtable.com/appN03Pyn2NzRRY95";

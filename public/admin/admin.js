@@ -163,16 +163,19 @@
         actions.appendChild(undo);
       });
       if (!p.punches.length && p.openShiftIds.length) {
-        var markAbsent = el("button", "link-btn", "Mark absent");
+        var markAbsent = el("button", "link-btn", "Edit");
         markAbsent.type = "button";
+        markAbsent.setAttribute("aria-label", "Edit " + p.name + "'s shift");
         markAbsent.addEventListener("click", function () {
-          openAbsence({ staffId: p.staffId, name: p.name, date: o.today, shiftIds: p.openShiftIds, shiftNames: p.openShiftNames });
+          openShiftEdit({ staffId: p.staffId, name: p.name, date: o.today, shiftIds: p.openShiftIds });
         });
         actions.appendChild(markAbsent);
       }
       var statusCell = append(el("td"), el("span", st[1], st[0]));
       if (p.status === "absent" && p.absences[0] && p.absences[0].note) statusCell.title = p.absences[0].note;
-      append(row, append(el("td"), who), el("td", null, p.shifts.join(", ") || "—"), statusCell,
+      var shiftCell = el("td", null, p.shifts.join(", ") || "—");
+      if (p.movedFrom && p.movedFrom.length) shiftCell.appendChild(el("span", "moved", "moved from " + p.movedFrom.join(", ")));
+      append(row, append(el("td"), who), shiftCell, statusCell,
         el("td", null, p.firstIn || "—"), el("td", null, p.lastOut || (p.status === "in" ? "…" : "—")),
         el("td", "num", p.minutes ? duration(p.minutes) : "—"), append(el("td"), actions));
       body.appendChild(row);
@@ -223,8 +226,8 @@
       });
       row.appendChild(form);
     } else {
-      // Late or a no-show: either they did work (add the hours) or they
-      // didn't (mark them absent, with a reason).
+      // Late or a no-show: either they did work (add the hours), or the
+      // plan changed (Edit: another shift, or absent with a reason).
       var box = el("div", "resolve");
       var resolve = el("button", "btn btn-dark btn-small", "Resolve");
       resolve.type = "button";
@@ -232,11 +235,11 @@
       worked.type = "button";
       worked.hidden = true;
       worked.addEventListener("click", function () { openAdd(a.staffId); });
-      var absent = el("button", "btn btn-small", "Mark absent");
+      var absent = el("button", "btn btn-small", "Edit");
       absent.type = "button";
       absent.hidden = true;
       absent.addEventListener("click", function () {
-        openAbsence({ staffId: a.staffId, name: a.name, date: a.date, shiftIds: a.shiftIds, shiftNames: a.shiftNames });
+        openShiftEdit({ staffId: a.staffId, name: a.name, date: a.date, shiftIds: a.shiftIds });
       });
       resolve.addEventListener("click", function () {
         resolve.hidden = true;
@@ -408,7 +411,8 @@
 
   function shortReason(r) {
     return { "Called out sick": "sick", "No-show": "no-show", "Personal / family": "personal",
-      "Covered by someone else": "covered", "Not needed (schedule changed)": "not needed", "Other": "other" }[r] || r;
+      "Covered by someone else": "covered", "Shift cancelled": "cancelled",
+      "Not needed (schedule changed)": "not needed", "Other": "other" }[r] || r;
   }
 
   function absenceList(absences) {
@@ -426,47 +430,103 @@
     return table;
   }
 
-  // ---------------------------------------------------- absence dialog
+  // ------------------------------------------------------- edit dialog
+  // Something changed for someone scheduled: either they moved to another
+  // shift that day, or they aren't working (absent, with a reason).
 
-  var REASONS = ["Called out sick", "No-show", "Personal / family", "Covered by someone else", "Not needed (schedule changed)", "Other"];
-  var absenceState = null;
-  function openAbsence(target) {
-    absenceState = target;
-    $("absence-title").textContent = "Mark " + target.name + " absent";
-    $("absence-sub").textContent = dayLabel(target.date, { weekday: "long", month: "long", day: "numeric" }) +
-      " · " + target.shiftNames.join(", ") + ". The schedule stays as it is; this is saved separately.";
-    var box = $("absence-reasons");
+  var REASONS = ["Called out sick", "No-show", "Personal / family", "Covered by someone else", "Shift cancelled", "Other"];
+  var editState = null;
+
+  function radios(box, name, items, checkedValue) {
     box.querySelectorAll("label").forEach(function (l) { l.remove(); });
-    ((state.overview && state.overview.reasons) || REASONS).forEach(function (r) {
+    items.forEach(function (it) {
       var label = el("label");
       var input = el("input");
       input.type = "radio";
-      input.name = "absence-reason";
-      input.value = r;
-      input.addEventListener("change", function () { $("absence-error").textContent = ""; });
-      append(label, input, el("span", null, r));
+      input.name = name;
+      input.value = it.value;
+      if (it.value === checkedValue) input.checked = true;
+      input.addEventListener("change", function () { $("edit-error").textContent = ""; updateSaveLabel(); });
+      var span = el("span", null, it.text);
+      if (it.hint) span.appendChild(el("span", "hint", it.hint));
+      append(label, input, span);
       box.appendChild(label);
     });
-    $("absence-note").value = "";
-    $("absence-error").textContent = "";
-    $("absence-dialog").showModal();
   }
-  $("absence-form").addEventListener("submit", function (e) {
+  function picked(name) {
+    var x = document.querySelector('input[name="' + name + '"]:checked');
+    return x ? x.value : "";
+  }
+  function setMode(mode) {
+    editState.mode = mode;
+    document.querySelectorAll("#edit-dialog .seg button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.getAttribute("data-mode") === mode));
+    });
+    $("edit-to").hidden = mode !== "move";
+    $("edit-reasons").hidden = mode !== "absent";
+    $("edit-note").placeholder = mode === "move" ? "e.g. Swapped with Asha" : "e.g. Texted Tay at 6am";
+    $("edit-error").textContent = "";
+    updateSaveLabel();
+  }
+  function shiftName(id) {
+    var t = (state.overview.shiftTypes || []).filter(function (x) { return x.id === id; })[0];
+    return t ? t.name : "";
+  }
+  function updateSaveLabel() {
+    var to = picked("edit-to");
+    $("edit-save").textContent = editState.mode === "move" ? (to ? "Move to " + shiftName(to) : "Change shift") : "Mark absent";
+  }
+
+  // target: { staffId, name, date, shiftIds (the ones that can be edited) }
+  function openShiftEdit(target) {
+    var o = state.overview;
+    var person = o.people.filter(function (p) { return p.staffId === target.staffId; })[0];
+    var onShifts = person ? person.shiftIds : target.shiftIds;
+    editState = { target: target, mode: "move" };
+    $("edit-title").textContent = "Edit " + target.name;
+    $("edit-sub").textContent = dayLabel(target.date, { weekday: "long", month: "long", day: "numeric" });
+
+    var from = $("edit-from");
+    radios(from, "edit-from", target.shiftIds.map(function (id) { return { value: id, text: shiftName(id) }; }), target.shiftIds[0]);
+    from.hidden = target.shiftIds.length < 2;
+    if (target.shiftIds.length === 1) $("edit-sub").textContent += " · scheduled for " + shiftName(target.shiftIds[0]);
+
+    radios($("edit-to"), "edit-to", (o.shiftTypes || [])
+      .filter(function (t) { return onShifts.indexOf(t.id) < 0; })
+      .map(function (t) { return { value: t.id, text: t.name, hint: t.label }; }), "");
+    radios($("edit-reasons"), "edit-reason", (o.reasons || REASONS).map(function (r) { return { value: r, text: r }; }), "");
+    $("edit-note").value = "";
+    setMode("move");
+    $("edit-dialog").showModal();
+  }
+
+  document.querySelectorAll("#edit-dialog .seg button").forEach(function (b) {
+    b.addEventListener("click", function () { setMode(b.getAttribute("data-mode")); });
+  });
+  $("edit-form").addEventListener("submit", function (e) {
     e.preventDefault();
-    var picked = document.querySelector('input[name="absence-reason"]:checked');
-    if (!picked) { $("absence-error").textContent = message({ error: "bad_reason" }); return; }
-    $("absence-save").disabled = true;
-    api("/absences", { method: "POST", body: {
-      staffId: absenceState.staffId, date: absenceState.date, shiftIds: absenceState.shiftIds,
-      reason: picked.value, note: $("absence-note").value,
-    } }).then(function () {
-      $("absence-dialog").close();
+    var t = editState.target;
+    var fromId = picked("edit-from");
+    var note = $("edit-note").value;
+    var req;
+    if (editState.mode === "move") {
+      var to = picked("edit-to");
+      if (!to) { $("edit-error").textContent = "Pick the shift they're moving to."; return; }
+      req = api("/shift-changes", { method: "POST", body: { staffId: t.staffId, date: t.date, fromShiftId: fromId, toShiftId: to, note: note } });
+    } else {
+      var reason = picked("edit-reason");
+      if (!reason) { $("edit-error").textContent = message({ error: "bad_reason" }); return; }
+      req = api("/absences", { method: "POST", body: { staffId: t.staffId, date: t.date, shiftIds: [fromId], reason: reason, note: note } });
+    }
+    $("edit-save").disabled = true;
+    req.then(function () {
+      $("edit-dialog").close();
       route();
     }).catch(function (x) {
-      $("absence-error").textContent = message(x);
-    }).then(function () { $("absence-save").disabled = false; });
+      $("edit-error").textContent = message(x);
+    }).then(function () { $("edit-save").disabled = false; });
   });
-  $("absence-cancel").addEventListener("click", function () { $("absence-dialog").close(); });
+  $("edit-cancel").addEventListener("click", function () { $("edit-dialog").close(); });
 
   // ------------------------------------------------------- punch dialog
 
@@ -536,7 +596,7 @@
   // Keep "Today" live: alerts appear as shifts end, without a reload. Skip
   // a refresh while someone is typing a fix.
   setInterval(function () {
-    if (state.tab !== "today" || $("punch-dialog").open || $("absence-dialog").open) return;
+    if (state.tab !== "today" || $("punch-dialog").open || $("edit-dialog").open) return;
     var a = document.activeElement;
     if (a && (a.tagName === "INPUT" || a.tagName === "SELECT")) return;
     loadOverview();

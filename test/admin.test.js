@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { handleAdmin } from "../src/worker.js";
-import { STAFF, SHIFT_TYPES, SCHEDULE, PUNCHES, ABSENCES } from "../src/config.js";
+import { STAFF, SHIFT_TYPES, SCHEDULE, PUNCHES, ABSENCES, SCHEDULE_CHANGES } from "../src/config.js";
 import { resetCaches } from "../src/kiosk.js";
 import { resetAccessCache } from "../src/access.js";
 import { fakeAirtable } from "./fake-airtable.js";
@@ -51,6 +51,7 @@ function setup({ env: extraEnv = {}, absences = [] } = {}) {
       { fields: { [SCHEDULE.date]: "2026-11-05", [SCHEDULE.shift]: ["recMorning0000000"], [SCHEDULE.staff]: [ids.asha] } },
     ],
     [ABSENCES.table]: absences,
+    [SCHEDULE_CHANGES.table]: [],
     [PUNCHES.table]: [
       // Asha: clocked in yesterday, never out.
       { id: "recPunchAsha00001", fields: { [PUNCHES.staff]: [ids.asha], [PUNCHES.clockIn]: et("07:01", "2026-11-03").toISOString(), [PUNCHES.source]: "Kiosk" } },
@@ -335,4 +336,63 @@ test("absences show in the hours view and the payroll CSV", async () => {
   assert.equal(h.body.people.find((p) => p.name === "Daynely").absences[0].reason, "Called out sick");
   const csv = await call("GET", "/admin/api/hours.csv?from=2026-11-01&to=2026-11-07");
   assert.match(csv.text, /\r\nAbsences\r\nName,Date,Shifts,Reason,Note,Recorded by\r\nDaynely,2026-11-04,Midday,Called out sick,Texted Tay at 6am,tay@roottorise\.example\r\n/);
+});
+
+// ------------------------------------------------------------ change shift
+
+test("changing someone's shift updates the schedule, logs it, and clears the alert", async () => {
+  const { fake, call } = setup();
+  // Daynely's Midday started at 1 PM; she's actually doing Afternoon (4 PM).
+  const before = await call("GET", "/admin/api/overview");
+  assert.ok(before.body.attention.some((a) => a.name === "Daynely" && a.type === "not_in"));
+  assert.deepEqual(before.body.shiftTypes.map((t) => t.name), ["Morning", "Midday", "Afternoon"]);
+
+  const r = await call("POST", "/admin/api/shift-changes", {
+    body: { staffId: ids.daynely, date: "2026-11-04", fromShiftId: "recMidday00000000", toShiftId: "recAfternoon00000", note: "Swapped her day around" },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.summary, "Daynely · Wed, Nov 4 · Midday → Afternoon");
+
+  const sched = fake.db[SCHEDULE.table].filter((row) => row.fields[SCHEDULE.date] === "2026-11-04");
+  const staffOn = (shift) => sched.filter((row) => row.fields[SCHEDULE.shift][0] === shift).flatMap((row) => row.fields[SCHEDULE.staff]);
+  assert.deepEqual(staffOn("recMidday00000000"), []);
+  assert.deepEqual(staffOn("recAfternoon00000"), [ids.daynely], "a row for Afternoon was added");
+
+  const log = fake.db[SCHEDULE_CHANGES.table][0].fields;
+  assert.deepEqual(log[SCHEDULE_CHANGES.fromShift], ["recMidday00000000"]);
+  assert.deepEqual(log[SCHEDULE_CHANGES.toShift], ["recAfternoon00000"]);
+  assert.equal(log[SCHEDULE_CHANGES.changedBy], "tay@roottorise.example");
+  assert.equal(log[SCHEDULE_CHANGES.note], "Swapped her day around");
+
+  const after = await call("GET", "/admin/api/overview");
+  assert.ok(!after.body.attention.some((a) => a.name === "Daynely"), "Afternoon hasn't started yet");
+  const daynely = after.body.people.find((p) => p.name === "Daynely");
+  assert.deepEqual(daynely.shifts, ["Afternoon"]);
+  assert.deepEqual(daynely.movedFrom, ["Midday"]);
+  assert.equal(daynely.status, "scheduled");
+});
+
+test("moving onto a shift that already has people adds to its row", async () => {
+  const { fake, call } = setup();
+  const r = await call("POST", "/admin/api/shift-changes", {
+    body: { staffId: ids.jimmy, date: "2026-11-04", fromShiftId: "recMorning0000000", toShiftId: "recMidday00000000" },
+  });
+  assert.equal(r.status, 200);
+  const midday = fake.db[SCHEDULE.table].find((row) => row.fields[SCHEDULE.date] === "2026-11-04" && row.fields[SCHEDULE.shift][0] === "recMidday00000000");
+  assert.deepEqual(midday.fields[SCHEDULE.staff], [ids.daynely, ids.jimmy]);
+  assert.equal(fake.db[SCHEDULE.table].length, 4, "no extra row");
+});
+
+test("shift changes are checked before anything is saved", async () => {
+  const { fake, call } = setup();
+  const move = (b) => call("POST", "/admin/api/shift-changes", { body: { staffId: ids.selma, date: "2026-11-04", fromShiftId: "recMorning0000000", toShiftId: "recMidday00000000", ...b } });
+  assert.equal((await move({ toShiftId: "recMorning0000000" })).body.error, "same_shift");
+  assert.equal((await move({ staffId: ids.asha })).body.error, "not_scheduled", "Asha isn't on Wednesday Morning");
+  assert.equal((await move({ toShiftId: "recNope0000000000" })).body.error, "bad_shift");
+  assert.equal((await move({ date: "2027-06-01" })).body.error, "date_out_of_range");
+  fake.db[SCHEDULE.table][1].fields[SCHEDULE.staff].push(ids.selma); // Selma already on Midday too
+  const dup = await move({});
+  assert.equal(dup.status, 409);
+  assert.equal(dup.body.error, "already_on_shift");
+  assert.equal(fake.db[SCHEDULE_CHANGES.table].length, 0, "nothing logged");
 });
