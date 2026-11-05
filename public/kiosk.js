@@ -55,6 +55,25 @@
     return new Intl.DateTimeFormat("en-US", { timeZone: tz(), hour: "numeric", minute: "2-digit" }).format(d);
   }
   function initial(name) { return String(name || "?").trim().charAt(0).toUpperCase(); }
+  // A round photo if the person has one in Airtable, else their initial. If
+  // the photo can't load (offline, say), the initial shows instead.
+  function avatar(cls, name, photo) {
+    var a = el("span", cls, initial(name));
+    if (photo) {
+      var img = el("img");
+      img.alt = "";
+      img.decoding = "async";
+      img.src = photo;
+      img.addEventListener("error", function () { img.remove(); a.classList.remove("has-photo"); });
+      a.classList.add("has-photo");
+      a.appendChild(img);
+    }
+    return a;
+  }
+  function photoFor(id) {
+    var p = state.data && state.data.staff.filter(function (x) { return x.id === id; })[0];
+    return p ? p.photo : null;
+  }
   function duration(min) {
     min = Math.max(0, Math.round(min || 0));
     var h = Math.floor(min / 60), m = min % 60;
@@ -208,7 +227,7 @@
       var inNow = isClockedIn(p);
       var b = el("button", "tile" + (inNow ? " is-in" : ""));
       b.type = "button";
-      b.appendChild(el("span", "avatar", initial(p.name)));
+      b.appendChild(avatar("avatar", p.name, p.photo));
       var text = el("span");
       text.appendChild(el("span", "tile-name", p.name));
       var sub = "Clocked out";
@@ -317,7 +336,8 @@
     if (!shifts) return;
     if (!shifts.length) { wrap.appendChild(el("div", "empty", "No shifts set up yet.")); return; }
     shifts.forEach(function (s) {
-      var card = el("section", "shift" + (s.phase === "now" ? " is-now" : ""));
+      var over = s.phase === "done" || s.phase === "past";
+      var card = el("section", "shift" + (s.phase === "now" ? " is-now" : "") + (over ? " is-done" : ""));
       var head = el("div", "shift-head");
       var left = el("div");
       left.appendChild(el("h2", null, s.name));
@@ -329,7 +349,7 @@
       if (!s.people.length) card.appendChild(el("div", "shift-empty", "Nobody scheduled"));
       s.people.forEach(function (p) {
         var row = el("div", "person s-" + p.status);
-        row.appendChild(el("span", "avatar", initial(p.name)));
+        row.appendChild(avatar("avatar", p.name, photoFor(p.id)));
         var t = el("span");
         t.appendChild(el("span", "person-name", p.name));
         var label = p.status === "missing" && s.phase === "done" ? "Didn't clock in"
@@ -375,7 +395,9 @@
     state.who = person;
     state.pin = "";
     var action = isClockedIn(person) ? "clock out" : "clock in";
-    $("pin-avatar").textContent = initial(person.name);
+    var fresh = avatar("avatar avatar-lg", person.name, person.photo);
+    fresh.id = "pin-avatar";
+    $("pin-avatar").replaceWith(fresh);
     $("pin-hello").textContent = "Hi, " + person.name;
     var ask = $("pin-ask");
     ask.textContent = "Enter your 4-digit code to ";

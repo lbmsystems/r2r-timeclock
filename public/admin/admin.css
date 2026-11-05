@@ -87,6 +87,9 @@ h2 { margin: 0 0 12px; font-size: 19px; font-weight: 500; }
 .table tr.detail td { background: #F7F4EF; padding: 0; }
 .who { display: flex; align-items: center; gap: 10px; font-weight: 500; }
 .avatar { width: 34px; height: 34px; border-radius: 17px; background: var(--soft); display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; flex-shrink: 0; }
+.avatar { position: relative; overflow: hidden; }
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.avatar.has-photo { color: transparent; }
 .pill { display: inline-block; font-size: 13px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--line-soft); color: var(--muted); white-space: nowrap; }
 .pill-in { background: var(--in-bg); color: var(--in-ink); }
 .pill-late { background: #F6E0D4; color: var(--late); }

@@ -2,6 +2,7 @@
 //
 //   GET  /api/state  who is clocked in + today's schedule
 //   GET  /api/schedule?date=YYYY-MM-DD  who is scheduled that day
+//   GET  /api/photo/<staff id>?v=<attachment id>  their photo, if any
 //   POST /api/punch  { staffId, pin, requestId, at? } -> clock in or out
 //
 // Owners' dashboard, behind Cloudflare Access (see access.js):
@@ -20,7 +21,7 @@
 //   PIN_PEPPER      long random string; changing it invalidates every code
 
 import { airtable, AirtableError } from "./airtable.js";
-import { getState, getSchedule, punch, KioskError } from "./kiosk.js";
+import { getState, getSchedule, punch, staffPhoto, KioskError } from "./kiosk.js";
 import { requireAdmin, AccessError } from "./access.js";
 import {
   getOverview, getHours, hoursCsv, getWeek, updatePunch, createPunch, createAbsence, deleteAbsence, changeShift, AdminError,
@@ -43,6 +44,20 @@ export async function handleApi(request, env, { fetchImpl, now } = {}) {
   try {
     if (url.pathname === "/api/state" && request.method === "GET") {
       return json(200, await getState(at, env, now?.()));
+    }
+    const photo = /^\/api\/photo\/(rec[A-Za-z0-9]{14})$/.exec(url.pathname);
+    if (photo && request.method === "GET") {
+      const img = await staffPhoto(at, photo[1], fetchImpl);
+      // A versioned link never changes content, so browsers keep it a week.
+      // A link without ?v= (or an old one) is kept only briefly.
+      const current = url.searchParams.get("v") === img.version;
+      return new Response(img.body, {
+        headers: {
+          "Content-Type": img.type,
+          "Cache-Control": current ? "public, max-age=604800, immutable" : "public, max-age=300",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
     }
     if (url.pathname === "/api/schedule" && request.method === "GET") {
       return json(200, await getSchedule(at, env, url.searchParams.get("date"), now?.()));

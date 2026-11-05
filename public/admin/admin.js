@@ -27,6 +27,22 @@
     return h + "h " + (m < 10 ? "0" : "") + m + "m";
   }
   function initial(name) { return String(name || "?").trim().charAt(0).toUpperCase(); }
+  // A round photo if the person has one in Airtable, else their initial. If
+  // the photo can't load (offline, say), the initial shows instead.
+  function avatar(cls, name, photo) {
+    var a = el("span", cls, initial(name));
+    if (photo) {
+      var img = el("img");
+      img.alt = "";
+      img.decoding = "async";
+      img.src = photo;
+      img.addEventListener("error", function () { img.remove(); a.classList.remove("has-photo"); });
+      a.classList.add("has-photo");
+      a.appendChild(img);
+    }
+    return a;
+  }
+
   function todayLocal() { return new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date()); }
   function parseDay(d) { var p = d.split("-").map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2])); }
   function addDays(d, n) { var t = parseDay(d); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); }
@@ -148,7 +164,7 @@
       var st = STATUS[p.status] || STATUS.off;
       if (p.status === "absent" && p.absences.length) st = ["Absent · " + shortReason(p.absences[0].reason), "pill pill-absent"];
       var row = el("tr", p.status === "absent" ? "row-absent" : null);
-      var who = append(el("div", "who"), el("span", "avatar", initial(p.name)), el("span", null, p.name));
+      var who = append(el("div", "who"), avatar("avatar", p.name, p.photo), el("span", null, p.name));
       var more = el("button", "link-btn", p.punches.length ? "Times" : "");
       more.type = "button";
       var actions = el("div", "row-actions");
@@ -351,7 +367,7 @@
       var more = el("button", "link-btn", hasDetail ? "Details" : "");
       more.type = "button";
       append(row,
-        append(el("td"), append(el("div", "who"), el("span", "avatar", initial(p.name)), el("span", null, p.name))),
+        append(el("td"), append(el("div", "who"), avatar("avatar", p.name, p.photo), el("span", null, p.name))),
         el("td", "num", String(p.days)), el("td", "num", String(p.shifts)),
         append(el("td", "num"), el("strong", null, duration(p.minutes))),
         append(el("td"), check), append(el("td", "num"), hasDetail ? more : null));

@@ -263,3 +263,39 @@ test("the kiosk shows someone marked absent as out, without the reason", async (
   assert.deepEqual(morning.people.map((p) => [p.name, p.status]), [["Asha", "missing"], ["Selma", "out"]]);
   assert.ok(!JSON.stringify(r.body).includes("sick"));
 });
+
+test("photos: a versioned link on the kiosk, served through the Worker", async () => {
+  const { fake } = await setup();
+  const asha = fake.db[STAFF.table].find((r) => r.id === ASHA);
+  asha.fields[STAFF.photo] = [{
+    id: "attAshaPhoto00001", url: "https://dl.airtable.test/asha-full.jpg", type: "image/jpeg",
+    thumbnails: { large: { url: "https://dl.airtable.test/asha-large.jpg", width: 512, height: 512 } },
+  }];
+  const fetched = [];
+  const fetchImpl = async (u, init) => {
+    if (String(u).startsWith("https://dl.airtable.test/")) {
+      fetched.push(String(u));
+      return new Response(new Uint8Array([0xff, 0xd8, 0xff]), { headers: { "Content-Type": "image/jpeg" } });
+    }
+    return fake.fetchImpl(u, init);
+  };
+  const get = async (path) => handleApi(new Request(ORIGIN + path), env, { fetchImpl, now: () => at("08:52") });
+
+  const state = await (await get("/api/state")).json();
+  const a = state.staff.find((s) => s.id === ASHA);
+  assert.equal(a.photo, `/api/photo/${ASHA}?v=attAshaPhoto00001`);
+  assert.equal(state.staff.find((s) => s.id === SELMA).photo, null);
+
+  const img = await get(a.photo);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get("Content-Type"), "image/jpeg");
+  assert.match(img.headers.get("Cache-Control"), /max-age=604800, immutable/);
+  assert.deepEqual([...new Uint8Array(await img.arrayBuffer())], [0xff, 0xd8, 0xff]);
+  assert.deepEqual(fetched, ["https://dl.airtable.test/asha-large.jpg"], "the thumbnail, not the full photo");
+
+  const old = await get(`/api/photo/${ASHA}?v=attSomethingOlder`);
+  assert.match(old.headers.get("Cache-Control"), /max-age=300$/, "an outdated link isn't cached for long");
+
+  assert.equal((await get(`/api/photo/${SELMA}`)).status, 404);
+  assert.equal((await get("/api/photo/recGone0000000000")).status, 404, "inactive staff");
+});
